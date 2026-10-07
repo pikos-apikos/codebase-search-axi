@@ -145,10 +145,27 @@ class RgFidelity(unittest.TestCase):
 
     def test_invalid_pattern_is_separate_from_diagnostics(self):
         (self.root / 'allowed.txt').write_text('needle\n')
-        proc, data = self.cli(pattern='[')
-        self.assertEqual((proc.returncode, data['error']), (1, 'invalid_pattern'))
-        self.assertNotIn('regex parse error', proc.stdout.decode())
-        self.assertIn(b'regex parse error', proc.stderr)
+        cases = (
+            ('[', b'regex parse error'),
+            (r'\n', b'is not allowed in a regex'),
+            (r'\x00', b'but it is impossible to match'),
+            ('[a-z]{10000000}', b'compiled regex exceeds size limit'),
+        )
+        for pattern, diagnostic in cases:
+            for command in ('search', 'context'):
+                for flags in ((), ('--all',)):
+                    with self.subTest(pattern=pattern, command=command, flags=flags):
+                        direct = subprocess.run(
+                            ['rg', '--no-config', '--json', '-e', pattern, '--', str(self.root)],
+                            capture_output=True, timeout=8)
+                        self.assertEqual(direct.returncode, 2)
+                        self.assertIn(diagnostic, direct.stderr)
+                        proc, data = self.cli(command, pattern, *flags)
+                        self.assertEqual((proc.returncode, data['status'], data['error']),
+                                         (1, 'error', 'invalid_pattern'))
+                        self.assertEqual(proc.stderr, direct.stderr)
+                        self.assertNotIn(diagnostic, proc.stdout)
+                        self.assertNotIn('matches', data)
 
     def test_empty_matches_are_successful_and_complete(self):
         (self.root / 'allowed.txt').write_text('needle\n')

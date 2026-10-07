@@ -53,7 +53,13 @@ class RgBackend:
                 diagnostics.seek(0)
                 detail = diagnostics.read(65536)
                 if code not in (0, 1):
-                    invalid = b'regex parse error' in detail or b'error parsing regex' in detail
+                    invalid = any(marker in detail for marker in (
+                        b'regex parse error',
+                        b'error parsing regex',
+                        b'the literal "\\n" is not allowed in a regex',
+                        b'pattern contains "\\0" but it is impossible to match',
+                        b'compiled regex exceeds size limit',
+                    ))
                     raise RgError('invalid_pattern' if invalid else 'ripgrep_failed',
                                   'Check the search regular expression.' if invalid else
                                   'The search could not complete; check stderr diagnostics and retry.', detail)
