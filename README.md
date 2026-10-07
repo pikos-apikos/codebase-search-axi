@@ -23,7 +23,7 @@ Run `bin/codebase-search --help` for the complete interface.
 
 ## AXI conformance
 
-This project follows the reference-AXI pattern set by tools such as [gh-axi](https://github.com/kunchenguid/gh-axi): a thin, non-interactive wrapper over an existing CLI (`rg`) that gives agents bounded, machine-readable results, structured error records with nonzero exit codes, a default limit with an explicit `--all` escape hatch, a skill under `.agents/skills/`, and tests that exercise the public CLI contract.
+This project follows the reference-AXI pattern set by tools such as [gh-axi](https://github.com/kunchenguid/gh-axi): a thin, non-interactive wrapper over an existing CLI (`rg`) that gives agents bounded, machine-readable results, structured error records with nonzero exit codes, a default limit with an explicit `--all` escape hatch (currently unbounded for `files` and `metrics`; `search` and `context` remain capped), a skill under `.agents/skills/`, and tests that exercise the public CLI contract.
 
 Deliberate divergences from `gh-axi`, kept because they fit a small local-search tool rather than a networked service adapter:
 
