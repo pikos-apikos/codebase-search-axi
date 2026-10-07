@@ -1,6 +1,6 @@
 # codebase-search-axi
 
-A bounded, read-only codebase search CLI for agents, built around ripgrep.
+A bounded, read-only codebase search CLI for agents, built around [ripgrep](https://github.com/burntsushi/ripgrep).
 
 It provides compact JSON output for file discovery, pattern search, surrounding context, and basic repository metrics.
 Common generated directories and sensitive files are excluded by default.
@@ -19,7 +19,7 @@ Run `bin/codebase-search --help` for the complete interface.
 ## Requirements
 
 - Python 3
-- ripgrep (`rg`)
+- [ripgrep](https://github.com/burntsushi/ripgrep) (`rg`)
 
 ## Test
 

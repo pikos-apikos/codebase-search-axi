@@ -9,7 +9,7 @@ metadata:
 # Codebase search
 
 Use `bin/codebase-search` from the repository root for quick, read-only codebase inspection.
-The command requires `rg` and does not require `axi-axi`.
+The command uses [ripgrep](https://github.com/burntsushi/ripgrep) through `rg` and does not require `axi-axi`.
 
 ## Workflow
 
