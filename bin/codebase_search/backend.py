@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from typing import Iterator
+from collections.abc import Iterator
+from pathlib import Path
 
 
 class RgError(Exception):

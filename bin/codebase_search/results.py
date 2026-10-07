@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import base64
+import os
 from collections import deque
 from contextlib import closing
-import os
 from pathlib import Path
 from typing import Any
 
 from .backend import RgBackend, RgError
-
 
 Value = str | dict[str, str]
 

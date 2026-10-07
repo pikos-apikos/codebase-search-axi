@@ -22,16 +22,10 @@ submatch positions. Context consumes rg events so native encoding conversion is
 preserved. Context remains one before/after array per match record and may repeat
 overlapping lines; this does not resolve the downstream overlap deduplication gap.
 
-For files/search/context, result bounds limit retained output, while the stream
-continues to completion. `total` counts the completed stream, `returned` and the
-legacy `count` count displayed records, and display truncation is explicit.
-Bounded metrics remain scan observations, named with `_seen`, and report an
-incomplete scan. Unbounded metrics exhaust discovery before claiming complete
-aggregates. No partial success is emitted after a scan failure or CLI interruption.
+See [README: Usage](../README.md#usage) for current result limits, completeness
+fields, metrics observations, and failure behavior.
 
-The legacy `--all` option is temporarily an unbounded-result adapter only. It
-retains **all** existing exclusions, including optional generated directories,
-and conflicts with explicitly selected result bounds. This is the smallest
+The current `--all` behavior documented in the README is the smallest
 compatibility boundary for the existing CLI while keeping sensitive-path denies.
 The future `--full`/`--all` migration and optional exclusion/policy framework
 belong to the later policy/interface slices. This work does not establish the

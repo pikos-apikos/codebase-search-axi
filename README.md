@@ -39,8 +39,10 @@ Match and context text retain rg's line terminators. Valid UTF-8 values are
 strings; non-UTF8 paths, text, context lines, and submatches are lossless
 `{"bytes":"<base64>"}` values. Columns and submatch offsets count bytes.
 Failed or interrupted scans return structured errors without partial results.
-Missing rg, invalid patterns, and backend failures exit 1; invalid CLI requests
-exit 2; successful empty results exit 0. Backend diagnostics go to stderr.
+Missing rg, invalid roots, invalid patterns, and backend failures exit 1;
+invalid CLI requests exit 2; successful empty results exit 0. Native pattern
+rejections (including forbidden line terminators, NUL matching, and compiled
+regex size limits) return `invalid_pattern`. Backend diagnostics go to stderr.
 
 ## Requirements
 
@@ -55,19 +57,14 @@ Deliberate divergences from `gh-axi`, kept because they fit a small local-search
 
 - Output is compact JSON instead of TOON (principle 1).
 - No no-argument dashboard; a subcommand is required (principle 8).
-- Output records carry no next-step suggestions (principle 9).
+- Truncated results and bounded metrics include `help` hints; other successful
+  records carry no next-step suggestions (principle 9).
 - No npm package or release pipeline; use the repository directly via `bin/codebase-search`.
 - Implemented in Python 3 instead of TypeScript/Node.
 
-The rg adapter slice implements only backend and result prerequisites. The
-planned `--full`, policy configuration, count command, text/serialized-byte and
-explicit scan bounds, TOON, and explicit JSON selection remain downstream.
-Adjacent context records may repeat overlapping lines; context overlap
-deduplication and an explicit `--json` interface are still unresolved downstream
-contract gaps. The existing `--all` adapter also retains optional generated-path
-exclusions until the later policy/migration slice. It cannot bypass sensitive
-path exclusions. See [the adapter evidence](docs/rg-adapter.md) for scope and
-verification details.
+The rg adapter slice implements only backend and result prerequisites. See
+[the adapter reference](docs/rg-adapter.md) for scope, remaining contract gaps,
+and verification details.
 
 ## Test
 
