@@ -100,6 +100,26 @@ class RgFidelity(unittest.TestCase):
         self.assertEqual(item['column'], 8)
         self.assertEqual(item['submatches'], [{'match': value(b'\xff'), 'start': 7, 'end': 8}])
 
+    def test_matching_lines_larger_than_read_chunk_preserve_text_and_offsets(self):
+        prefix = 'é'.encode() * 70000
+        for suffix in (b' tail ', b'\xff tail '):
+            with self.subTest(suffix=suffix):
+                line = prefix + b'needle' + suffix + b'needle\r\n'
+                (self.root / 'allowed.txt').write_bytes(line + b'needle\n')
+                proc, data = self.cli('search', 'needle', '--all')
+                self.assertEqual(proc.returncode, 0)
+                self.assertEqual(data['complete'], {'scan': True, 'display': True})
+                self.assertEqual(data['total'], 2)
+                self.assertEqual(data['matches'], [
+                    {'path': 'allowed.txt', 'line': 1, 'column': len(prefix) + 1,
+                     'text': value(line), 'submatches': [
+                         {'match': 'needle', 'start': len(prefix), 'end': len(prefix) + 6},
+                         {'match': 'needle', 'start': len(prefix) + 6 + len(suffix),
+                          'end': len(prefix) + 12 + len(suffix)}]},
+                    {'path': 'allowed.txt', 'line': 2, 'column': 1, 'text': 'needle\n',
+                     'submatches': [{'match': 'needle', 'start': 0, 'end': 6}]},
+                ])
+
     def test_non_utf8_root_does_not_corrupt_relative_paths(self):
         self.root = self.root / os.fsdecode(b'root-\xff')
         self.root.mkdir()

@@ -38,11 +38,15 @@ class RgBackend:
                 raise RgError('ripgrep_failed', 'Could not start the search process.') from None
             try:
                 assert proc.stdout is not None
-                pending = b''
+                pending = bytearray()
                 while chunk := proc.stdout.read1(65536):
-                    pieces = (pending + chunk).split(separator)
-                    pending = pieces.pop()
-                    yield from pieces
+                    start = 0
+                    while (end := chunk.find(separator, start)) != -1:
+                        pending.extend(chunk[start:end])
+                        yield bytes(pending)
+                        pending.clear()
+                        start = end + len(separator)
+                    pending.extend(chunk[start:])
                 if pending:
                     raise RgError('ripgrep_failed', 'The search process returned an incomplete record.')
                 code = proc.wait()
