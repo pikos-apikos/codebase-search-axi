@@ -25,7 +25,11 @@ has these known defects and omissions:
   unreported partial scan; `metrics` presents such partial values as ordinary
   totals;
 - there are no public literal/regex, case, type/glob, multiline, PCRE2,
-  policy, text-byte, output-byte, scan-bound, or completeness controls.
+  policy, text-byte, output-byte, scan-bound, or completeness controls;
+- rg JSON `bytes` values are ignored: searching a file containing
+  `b'needle \xff\n'` returns empty `text` instead of the matching bytes.
+  Non-UTF8 paths are likewise not decoded by the match adapter. This is a
+  result-fidelity defect tracked by #3, not an empty match.
 
 These defects are evidence for the follow-on implementation tickets, not
 changes made by this contract ticket.
@@ -80,8 +84,11 @@ not included in match counts. Context at a file boundary is an empty array.
 
 Returns `{path,count}` records and an aggregate `total` only when the complete
 scan succeeded. By default `count` follows ripgrep `--count` semantics: one
-count per matching line. `--count-matches` selects ripgrep's per-occurrence
-semantics. `matched_files` is the number of files with a non-zero count. A
+count per matching line, except that with `--multiline` and a pattern capable
+of spanning lines, native `--count` is equivalent to `--count-matches`.
+For example, `a\nb` matching two adjacent lines counts once, not twice.
+`--count-matches` always selects ripgrep's per-occurrence semantics.
+`matched_files` is the number of files with a non-zero count. A
 display-limited list may omit per-file records while retaining a complete
 aggregate; a scan-limited result must omit `total` and say why in
 `complete.scan`/`help`.
@@ -105,6 +112,27 @@ cannot admit a mandatory denied path. File encoding, binary detection, and
 regex behavior remain ripgrep behavior; the result layer only normalizes
 events and output text.
 
+### Text, bytes, and positions
+
+The result layer decodes both rg JSON variants, `{"text":"…"}` and
+`{"bytes":"…"}` (base64). In both output formats, valid UTF-8 path and
+content values are strings; non-UTF8 values are objects with a single `bytes`
+key containing RFC 4648 standard padded base64. This applies to file paths,
+diagnostic root paths, matching `text`, matched spans, and each `before`/`after`
+line. No replacement characters, surrogate escapes, or empty-string fallback
+may replace undecodable data. With display bounds disabled, content retains
+rg's emitted bytes, including line terminators; path normalization preserves
+the underlying path bytes while making paths root-relative and POSIX as
+specified in the path policy below.
+
+Line numbers are one-based. Columns are one-based byte positions within the
+corresponding line, not Unicode character positions. Submatch `start`/`end`
+offsets are zero-based byte offsets into the untruncated rg event's line data,
+with an exclusive end; multiline boundary columns use the same byte units.
+Offsets refer to the byte buffer searched by rg, including any native encoding
+conversion, rather than assuming they are offsets into the original disk file.
+Base64 and output escaping do not change these positions.
+
 ## Bounds and completeness
 
 The defaults are deliberately finite for agent output: `--max-results 50`,
@@ -120,11 +148,22 @@ positions are calculated before display truncation. A response that omits
 records due to a display bound sets `complete.display: false` and includes an
 actionable `help` hint.
 
+`--max-text-bytes` measures the decoded content bytes per record, summed over
+`text`, matched spans, and all context lines that are emitted, including line
+terminators and repeated content; paths and metadata are excluded.
+`text_bytes` is that record's content-byte size before truncation.
+Truncation retains content prefixes within the budget, at UTF-8 character
+boundaries for strings and byte boundaries for `bytes` values, and sets
+`complete.display: false`. Base64 expansion does not consume this text budget.
+`--max-bytes` instead measures the entire serialized stdout response in UTF-8
+bytes, including envelope, metadata, escaping, base64 expansion, and any final
+newline, for the selected output format.
+
 `--full` removes display and scan bounds and includes optional excluded paths,
 but it never disables mandatory denied paths. It conflicts with an explicit
-bound rather than silently choosing one. `--all` is, at most, a deprecated
-compatibility alias for `--full`; it must not regain the baseline's sensitive
-path bypass.
+bound rather than silently choosing one. `--all` is removed and returns a
+usage error with a migration hint: use `--full` for unbounded output and
+optional excluded paths; mandatory denied paths remain denied.
 
 Every successful response reports:
 
@@ -186,6 +225,18 @@ readability; JSON is stable for composition. Default schemas stay minimal, but
 truncated large text is represented rather than silently omitted. `--full` is
 the explicit escape hatch for complete display.
 
+The executable identifies itself as `codebase-search` with a concise
+description. With no arguments it succeeds with compact workspace orientation
+(root, commands, and useful next steps) under finite bounds, without an
+undisclosed expensive full scan. Each command provides concise `--help`.
+Bare `-v`, `-V`, and `--version` print the version and exit successfully without
+scanning or invoking rg.
+
+`--fields FIELD,...` selects result-record fields in either format. Unknown
+fields are usage errors; projection does not change matching, counts, or scan
+completeness. Envelope completeness, truncation metadata, and encoding tags
+needed to interpret selected values remain present.
+
 All normal and error responses are structured on stdout. Stderr is reserved for
 diagnostics and must not contain data needed to interpret stdout. Exit codes
 are `0` for success (including an empty result), `1` for a valid request that
@@ -223,18 +274,25 @@ exercise the public CLI, not private helpers.
 | --- | --- | --- |
 | V1 | Existing baseline suite, required `rg`, no fallback, structured errors | #3, #6 |
 | V2 | Regex/literal, case modes, type/glob, multiline, optional PCRE2 match `rg` | #3 |
-| V3 | Files/search/context/count schemas, ordering, offsets, context boundaries | #5 |
+| V3 | Files/search/context/count schemas, ordering, byte offsets, context boundaries; native multiline count versus per-line count | #5 |
 | V4 | Normal ignore behavior versus `--no-ignore`/`--hidden`; binary behavior | #3, #5 |
 | V5 | Mandatory denied paths remain denied under `--full`, globs, and ignore flags | #4 |
 | V6 | Explicit policy loading, precedence, root changes, canonical paths, symlinks | #4 |
-| V7 | Result/text/output/scan bounds, `--full`, `complete`, and non-total partial metrics/counts | #5 |
+| V7 | Result/text/output/scan bounds in decoded versus serialized bytes, `--full`, `complete`, and non-total partial metrics/counts | #5 |
 | V8 | Empty result, malformed pattern/policy/root, missing capability, and exit codes | #6 |
 | V9 | Default TOON, stable JSON, minimal fields, truncation metadata, actionable help | #6 |
+| V10 | UTF-8 strings and lossless base64 path/text/context values agree with rg bytes; multibyte and non-UTF8 byte positions survive truncation | #3, #5, #6 |
+| V11 | Content-first no-argument workspace orientation, executable identity and description, finite work without an undisclosed full scan | [#6](https://github.com/pikos-apikos/codebase-search-axi/issues/6) |
+| V12 | Per-command help and bare fast `-v`/`-V`/`--version` work without rg or a scan | [#6](https://github.com/pikos-apikos/codebase-search-axi/issues/6) |
+| V13 | `--fields` projects TOON/JSON results consistently, preserves required metadata, and rejects unknown fields | [#6](https://github.com/pikos-apikos/codebase-search-axi/issues/6) |
+| V14 | Removed `--all` returns a usage error and `--full` migration hint without exposing mandatory denied paths | [#4](https://github.com/pikos-apikos/codebase-search-axi/issues/4), #6 |
 
 This maps to the AXI principles of token-efficient/minimal output, explicit
 truncation with a `--full` escape hatch, pre-computed aggregates, definitive
 empty states, structured stdout errors, fail-loud unknown input, and no
-interactive prompts. The corresponding source is the
+interactive prompts. V11–V13 map the content-first orientation, executable
+identity, help, version discovery, and field-selection principles to #6.
+The corresponding source is the
 [AXI CLI skill](https://github.com/kunchenguid/axi/blob/main/.agents/skills/axi/SKILL.md).
 Ambient integrations, packaging, benchmarking, publication, and catalog
 admission remain outside this contract and belong to later map tickets.
