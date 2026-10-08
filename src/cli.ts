@@ -303,7 +303,7 @@ const COMMAND_SUMMARIES: Record<string, string> = {
 function commandHelp(command: string): string {
   const lines: string[] = [`codebase-search ${command} — ${COMMAND_SUMMARIES[command] ?? ""}`];
   if (command === "setup") {
-    lines.push("Usage: codebase-search setup hooks <install|status|uninstall> [--home PATH]");
+    lines.push("Usage: codebase-search setup hooks <install|status|uninstall> --home PATH");
     lines.push("Flags: --home PATH");
     return lines.join("\n");
   }
@@ -348,7 +348,8 @@ function setupCommand(args: string[]): Record<string, unknown> | string {
       homeDir = value;
     } else throw usageError(`unrecognized argument: ${arg}`);
   }
-  const options = { scope: "user" as const, ...(homeDir ? { homeDir } : {}) };
+  if (!homeDir) throw usageError("--home PATH is required for setup hooks");
+  const options = { scope: "user" as const, homeDir };
   let record: Record<string, unknown>;
   if (action === "install") {
     installSessionStartHooks(options);

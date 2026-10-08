@@ -119,6 +119,15 @@ test("setup hooks rejects project-scoped configuration", async () => {
   }
 });
 
+test("setup hooks requires an explicit isolated home", async () => {
+  for (const action of ["status", "install", "uninstall"]) {
+    const { data, code } = await runCli(["setup", "hooks", action]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+  }
+});
+
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
