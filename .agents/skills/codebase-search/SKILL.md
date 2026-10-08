@@ -26,11 +26,16 @@ bin/codebase-search metrics --root .
 
 ## Safety and output contract
 
-Every successful invocation prints one compact JSON record to stdout and exits zero.
+Every successful invocation prints one compact TOON record to stdout and exits
+zero. Pass `--json` when a stable JSON envelope is required.
 Empty discovery and search results are successful records with an empty array and `count: 0`.
 Output is bounded by default at 50 results; use `--max-results N` for another bound.
-See [README: AXI conformance](../../../README.md#axi-conformance) for the command-specific limits of `--all`.
+See [README: AXI conformance](../../../README.md#axi-conformance) for the
+`--full` behavior and mandatory path exclusions.
 Default exclusions cover `.git`, dependency and vendor directories, common build outputs, virtual environments, `.env*`, private-key names, and common certificate or key extensions.
-Use `--all` only when searching those paths is intentional because it opts into generated and potentially sensitive content.
-Invalid commands, invalid roots, invalid requests, unavailable `rg`, and search failures print a JSON error record and exit nonzero.
+Use `--full` when optional generated paths should be included; mandatory
+denied paths remain excluded. `--all` is removed and returns a usage error.
+Invalid commands, invalid roots, invalid requests, unavailable `rg`, and
+search failures use the SDK's structured error output and exit nonzero; pass
+`--json` for the stable JSON error envelope.
 Search records preserve relative filenames, line numbers, columns, and matching line text; context records also include `before` and `after` arrays.
