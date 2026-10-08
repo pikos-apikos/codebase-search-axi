@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
   mkdirSync,
@@ -84,6 +85,29 @@ test("bare invocation returns compact orientation without scanning", async () =>
   assert.equal(code, 0);
   assert.match(stdout, /orientation:/);
   assert.match(stdout, /files/);
+});
+
+test("setup hooks is explicit, idempotent, and preserves unrelated home files", async () => {
+  const home = makeRoot();
+  try {
+    const unrelated = join(home, "unrelated.json");
+    writeFileSync(unrelated, '{"keep":true}\n', "utf-8");
+    for (const action of ["status", "install", "status", "uninstall", "status"]) {
+      const { data, code } = await runCli([
+        "setup",
+        "hooks",
+        action,
+        "--home",
+        home,
+      ]);
+      assert.equal(code, 0);
+      assert.equal(data.status, "ok");
+      assert.equal(data.command, "setup");
+    }
+    assert.equal(readFileSync(unrelated, "utf-8"), '{"keep":true}\n');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("unknown command is a structured invalid_command error", async () => {

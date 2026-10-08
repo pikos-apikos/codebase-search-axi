@@ -10,7 +10,10 @@
  */
 import {
   AxiError,
+  installSessionStartHooks,
   runAxiCli,
+  sessionStartHookStatus,
+  uninstallSessionStartHooks,
   type AxiCliCommand,
   type AxiCliOptions,
 } from "axi-sdk-js";
@@ -21,6 +24,7 @@ import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_LIMIT = 50;
+type SetupScope = "user" | "project";
 
 interface ParsedCommand {
   command: "files" | "search" | "context" | "metrics" | "count";
@@ -275,6 +279,7 @@ const HELP = [
   "Defaults exclude generated and sensitive paths.",
   "",
   "Subcommands:",
+  "  setup     install, inspect, or remove opt-in agent hooks",
   "  files     discover files",
   "  search    search file contents",
   "  context   search with surrounding lines",
@@ -298,6 +303,11 @@ const COMMAND_SUMMARIES: Record<string, string> = {
 
 function commandHelp(command: string): string {
   const lines: string[] = [`codebase-search ${command} — ${COMMAND_SUMMARIES[command] ?? ""}`];
+  if (command === "setup") {
+    lines.push("Usage: codebase-search setup hooks <install|status|uninstall> [--scope user|project] [--home PATH] [--project-dir PATH]");
+    lines.push("Flags: --scope user|project, --home PATH, --project-dir PATH");
+    return lines.join("\n");
+  }
   if (command === "search" || command === "context" || command === "count") {
     lines.push(`Usage: codebase-search ${command} PATTERN [flags] [-- PATTERN]`);
   } else {
@@ -318,6 +328,45 @@ function commandHelp(command: string): string {
   }
   if (command === "count") lines.push("Count flags: --count-matches");
   return lines.join("\n");
+}
+
+function setupCommand(args: string[]): Record<string, unknown> | string {
+  if (args.length === 0 || args[0] === "--help") {
+    throw usageError("setup requires hooks install, status, or uninstall");
+  }
+  if (args[0] !== "hooks" || !args[1]) throw usageError("use `setup hooks <install|status|uninstall>`");
+  const action = args[1];
+  if (!["install", "status", "uninstall"].includes(action)) throw usageError("unknown hooks action");
+  let scope: SetupScope = "user";
+  let homeDir: string | undefined;
+  let projectDir: string | undefined;
+  let json = false;
+  for (let i = 2; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--json") {
+      json = true;
+    } else if (arg === "--scope" || arg === "--home" || arg === "--project-dir") {
+      if (i + 1 >= args.length) throw usageError(`${arg} requires a value`);
+      const value = args[++i];
+      if (arg === "--scope") {
+        if (value !== "user" && value !== "project") throw usageError("--scope must be user or project");
+        scope = value;
+      } else if (arg === "--home") homeDir = value;
+      else projectDir = value;
+    } else throw usageError(`unrecognized argument: ${arg}`);
+  }
+  const options = { scope, ...(homeDir ? { homeDir } : {}), ...(projectDir ? { projectDir } : {}) };
+  let record: Record<string, unknown>;
+  if (action === "install") {
+    installSessionStartHooks(options);
+    record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
+  } else if (action === "uninstall") {
+    uninstallSessionStartHooks(options);
+    record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
+  } else {
+    record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
+  }
+  return json ? JSON.stringify(record) : record;
 }
 
 const FIELD_NAMES: Record<CommandName, ReadonlySet<string>> = {
@@ -440,6 +489,7 @@ export async function main(): Promise<void> {
     };
 
   const commands: Record<string, AxiCliCommand<undefined>> = {
+    setup: async (args: string[]) => setupCommand(args),
     files: buildCommand("files"),
     search: buildCommand("search"),
     context: buildCommand("context"),

@@ -1,0 +1,36 @@
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+
+const root = resolve(import.meta.dirname, "..");
+const temp = mkdtempSync(join(tmpdir(), "codebase-search-package-"));
+const pack = spawnSync("npm", ["pack", "--json", "--pack-destination", temp], { cwd: root, encoding: "utf8" });
+if (pack.status !== 0) throw new Error(pack.stderr || "npm pack failed");
+const packStart = pack.stdout.indexOf("[");
+const packRecord = packStart >= 0 ? JSON.parse(pack.stdout.slice(packStart)) : [];
+const tarball = packRecord[0]?.filename;
+if (!tarball) throw new Error("npm pack returned no tarball");
+const install = spawnSync("npm", ["install", "--ignore-scripts", "--no-package-lock", join(temp, tarball)], { cwd: temp, encoding: "utf8" });
+if (install.status !== 0) throw new Error(install.stderr || "clean package install failed");
+const bin = join(temp, "node_modules", ".bin", "codebase-search");
+const run = (args, env = {}) => {
+  const result = spawnSync(bin, args, { cwd: temp, env: { ...process.env, ...env }, encoding: "utf8" });
+  if (result.status !== 0) throw new Error(`${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+  return result.stdout;
+};
+const orientation = run([]);
+if (!orientation.includes("orientation:")) throw new Error("installed executable did not return orientation");
+const rootFixture = mkdtempSync(join(tmpdir(), "codebase-search-fixture-"));
+writeFileSync(join(rootFixture, "sample.txt"), "needle\n");
+const search = run(["search", "needle", "--root", rootFixture, "--full", "--json"]);
+if (!JSON.parse(search).matches?.length) throw new Error("installed executable search failed");
+const home = mkdtempSync(join(tmpdir(), "codebase-search-home-"));
+const unrelated = join(home, "unrelated.json");
+writeFileSync(unrelated, '{"keep":true}\n');
+run(["setup", "hooks", "status", "--home", home, "--json"]);
+run(["setup", "hooks", "install", "--home", home, "--json"]);
+run(["setup", "hooks", "status", "--home", home, "--json"]);
+run(["setup", "hooks", "uninstall", "--home", home, "--json"]);
+if (readFileSync(unrelated, "utf8") !== '{"keep":true}\n') throw new Error("unrelated home configuration changed");
+console.log(`package install and opt-in integration checks passed: ${tarball}`);
