@@ -128,6 +128,26 @@ test("setup hooks requires an explicit isolated home", async () => {
   }
 });
 
+test("setup hooks rejects personal home aliases before dispatch", async () => {
+  const personalHome = process.env.HOME;
+  assert.ok(personalHome);
+  const aliasRoot = makeRoot();
+  const symlinkHome = join(aliasRoot, "home");
+  symlinkSync(personalHome, symlinkHome, "dir");
+  try {
+    for (const home of [personalHome, join(personalHome, "."), "~", "$HOME", "${HOME}", symlinkHome]) {
+      for (const action of ["status", "install", "uninstall"]) {
+        const { data, code } = await runCli(["setup", "hooks", action, "--home", home]);
+        assert.equal(code, 2);
+        assert.equal(data.status, "error");
+        assert.equal(data.error, "invalid_command");
+      }
+    }
+  } finally {
+    rmSync(aliasRoot, { recursive: true, force: true });
+  }
+});
+
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");

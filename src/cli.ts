@@ -17,6 +17,9 @@ import {
   type AxiCliCommand,
   type AxiCliOptions,
 } from "axi-sdk-js";
+import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { RgBackend, reap, RgError, type RgOptions } from "./backend.js";
 import { count, files, matches, metrics } from "./results.js";
 import { resolveRoot, type ResolvedRoot } from "./policy.js";
@@ -24,6 +27,17 @@ import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_LIMIT = 50;
+
+function isPersonalHome(homeDir: string): boolean {
+  if (homeDir === "~" || homeDir === "$HOME" || homeDir === "${HOME}") return true;
+  const personalHome = homedir();
+  if (resolve(homeDir) === resolve(personalHome)) return true;
+  try {
+    return realpathSync(homeDir) === realpathSync(personalHome);
+  } catch {
+    return false;
+  }
+}
 
 interface ParsedCommand {
   command: "files" | "search" | "context" | "metrics" | "count";
@@ -349,6 +363,7 @@ function setupCommand(args: string[]): Record<string, unknown> | string {
     } else throw usageError(`unrecognized argument: ${arg}`);
   }
   if (!homeDir) throw usageError("--home PATH is required for setup hooks");
+  if (isPersonalHome(homeDir)) throw usageError("--home must be an isolated home");
   const options = { scope: "user" as const, homeDir };
   let record: Record<string, unknown>;
   if (action === "install") {
