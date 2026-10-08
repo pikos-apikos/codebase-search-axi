@@ -4,7 +4,7 @@ A bounded, read-only codebase search CLI for agents, built around [ripgrep](http
 
 **Target architecture (settled):** see the [v1 contract's scope and ownership boundaries](docs/v1-contract.md#scope-and-baseline).
 
-**Current implementation:** Python 3, retained as a temporary state until the Issue 3 Node port lands.
+**Current implementation:** Node.js / TypeScript, dispatching through [`axi-sdk-js`](https://www.npmjs.com/package/axi-sdk-js) and driving `rg` directly (no Python bridge).
 
 It provides compact JSON output for file discovery, pattern search, surrounding context, and basic repository metrics.
 Common generated directories and sensitive files are excluded by default.
@@ -25,8 +25,17 @@ Run `bin/codebase-search --help` for the complete interface.
 
 ## Requirements
 
-- Python 3 (current implementation)
+- Node.js >= 20.11 (TypeScript build uses `tsc`)
 - [ripgrep](https://github.com/burntsushi/ripgrep) (`rg`)
+
+## Setup
+
+```bash
+npm install
+npm run build
+```
+
+`bin/codebase-search` is a Node launcher; it requires the compiled `dist/` output from `npm run build`.
 
 ## AXI conformance
 
@@ -37,10 +46,12 @@ Deliberate divergences from `gh-axi`, kept because they fit a small local-search
 - Output is compact JSON instead of TOON (principle 1).
 - No no-argument dashboard; a subcommand is required (principle 8).
 - Output records carry no next-step suggestions (principle 9).
-- No npm package or release pipeline; use the repository directly via `bin/codebase-search`.
+- No published npm package or release pipeline; use the repository directly via `bin/codebase-search` (after `npm install && npm run build`).
 
 ## Test
 
 ```bash
 tests/codebase-search.test.sh
 ```
+
+The entry point builds the TypeScript CLI (`npm run build`) and runs the Node test suite (`node --test`), covering the public CLI contract and the rg adapter fidelity regressions.

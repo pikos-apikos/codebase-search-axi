@@ -1,0 +1,29 @@
+{
+  "name": "codebase-search-axi",
+  "version": "0.1.0",
+  "description": "Bounded, read-only codebase search CLI for agents, built around ripgrep with axi-sdk-js.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "bin": {
+    "codebase-search": "bin/codebase-search"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test",
+    "pretest": "npm run build"
+  },
+  "dependencies": {
+    "axi-sdk-js": "0.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2"
+  }
+}
