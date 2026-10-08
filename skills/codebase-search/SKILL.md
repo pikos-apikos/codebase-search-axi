@@ -25,4 +25,4 @@ npx --no-install codebase-search metrics --root .
 
 Every successful invocation prints one compact TOON record to stdout and exits zero. Pass `--json` when a stable JSON envelope is required. Empty discovery and search results are successful records. Output is bounded by default; use `--full` only when an unbounded scan is intended. Mandatory denied paths remain excluded.
 
-For opt-in agent session integration, use `npx --no-install codebase-search setup hooks status` before choosing `setup hooks install`; use `npx --no-install codebase-search setup hooks uninstall` to remove only this tool's managed entries. Ordinary search commands never install hooks or contact a registry.
+For opt-in agent session integration, use `npx --no-install codebase-search setup hooks status` before choosing `setup hooks install`; use `npx --no-install codebase-search setup hooks uninstall` to remove only this tool's managed entries. Ordinary search commands never install hooks or contact a registry. Setup supports user and project scopes when an isolated home is supplied.

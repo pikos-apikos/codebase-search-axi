@@ -110,15 +110,6 @@ test("setup hooks is explicit, idempotent, and preserves unrelated home files", 
   }
 });
 
-test("setup hooks rejects project-scoped configuration", async () => {
-  for (const flag of ["--scope", "--project-dir"]) {
-    const { data, code } = await runCli(["setup", "hooks", "status", flag, "/tmp/project"]);
-    assert.equal(code, 2);
-    assert.equal(data.status, "error");
-    assert.equal(data.error, "invalid_command");
-  }
-});
-
 test("setup hooks requires an explicit isolated home", async () => {
   for (const action of ["status", "install", "uninstall"]) {
     const { data, code } = await runCli(["setup", "hooks", action]);
@@ -180,6 +171,29 @@ test("setup hooks surfaces SDK write failures", async () => {
   }
 });
 
+test("setup hooks accepts project scope with an isolated home", async () => {
+  const home = makeRoot();
+  const project = makeRoot();
+  try {
+    const { data, code } = await runCli([
+      "setup",
+      "hooks",
+      "status",
+      "--scope",
+      "project",
+      "--home",
+      home,
+      "--project-dir",
+      project,
+    ]);
+    assert.equal(code, 0);
+    assert.equal(data.status, "ok");
+    assert.equal(data.command, "setup");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  }
+});
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
