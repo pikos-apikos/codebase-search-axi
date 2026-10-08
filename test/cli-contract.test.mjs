@@ -394,6 +394,21 @@ test("display text and serialized byte bounds mark truncation", async () => {
   }
 });
 
+test("text bounds keep UTF-8 prefixes valid and selected metadata visible", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "unicode.txt", "needleé\n");
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "7", "--fields", "text"]);
+    assert.equal(code, 0);
+    assert.equal(data.matches[0].text, "needle");
+    assert.equal(data.matches[0].text_bytes > 7, true);
+    assert.equal(data.matches[0].text_truncated, true);
+    assert.equal(data.complete.display, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("scan bounds stop discovery and report incomplete scans", async () => {
   const root = makeRoot();
   try {
@@ -406,6 +421,10 @@ test("scan bounds stop discovery and report incomplete scans", async () => {
     assert.equal(bounded.code, 0);
     assert.equal(bounded.data.complete.scan, false);
     assert.equal("total" in bounded.data, false);
+    const count = await runCli(["count", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(count.code, 0);
+    assert.equal(count.data.complete.scan, false);
+    assert.equal("total" in count.data, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -431,6 +450,26 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
     const duplicate = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(duplicate.code, 1);
     assert.equal(duplicate.data.error, "invalid_policy");
+    writeFileSync(malformed, 'optional_globs = [\n  """!**/#cache/**""",\n]\n');
+    const multiline = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(multiline.code, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("format aliases select JSON errors and output bounds use TOON", async () => {
+  const root = makeRoot();
+  try {
+    const bad = join(root, "bad.toml");
+    writeFileSync(bad, "invalid = true\n");
+    const error = await runCli(["files", "--root", root, "--policy", bad, "--format", "json"], { json: false });
+    assert.equal(error.code, 1);
+    assert.equal(error.data.error, "invalid_policy");
+    write(root, "a.txt", "x\n");
+    const toon = await runCli(["files", "--root", root, "--max-bytes", "20"], { json: false });
+    assert.equal(toon.code, 1);
+    assert.match(toon.stdout, /^error:/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

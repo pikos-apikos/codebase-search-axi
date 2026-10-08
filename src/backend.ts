@@ -139,8 +139,8 @@ export class RgBackend {
   }
 
   /** Absolute-then-relative args shared by every invocation. */
-  private argsFor(options: string[]): string[] {
-    return [...this.baseArgs, ...options, "--", this.root.searchPath];
+  private argsFor(options: string[], paths: Array<string | Buffer> = [this.root.searchPath]): Array<string | Buffer> {
+    return [...this.baseArgs, ...options, "--", ...paths];
   }
 
   /** Discovered files, NUL-separated from rg `--files -0` output. */
@@ -157,7 +157,7 @@ export class RgBackend {
    * value of `-e`; the root follows `--`. A successful scan requires both a
    * native successful exit and the rg summary event.
    */
-  async *events(pattern: Buffer, before = 0, after = 0): AsyncGenerator<RgEvent> {
+  async *events(pattern: Buffer, before = 0, after = 0, paths?: Array<string | Buffer>): AsyncGenerator<RgEvent> {
     if (pattern.includes(0)) {
       throw new RgError(
         "invalid_pattern",
@@ -174,7 +174,7 @@ export class RgBackend {
       String(after),
       "-e",
       pattern.toString("utf-8"),
-    ]);
+    ], paths);
     let summary = false;
     for await (const raw of this.lines(args, 0x0a)) {
       let event: unknown;
@@ -213,7 +213,7 @@ export class RgBackend {
    * lines. Verifies the exit code and surfaces a structured error carrying
    * the bounded diagnostic prefix on failure.
    */
-  private async *lines(args: string[], separator: number): AsyncGenerator<Buffer> {
+  private async *lines(args: Array<string | Buffer>, separator: number): AsyncGenerator<Buffer> {
     if (this.interrupted) {
       throw new RgError(
         "ripgrep_failed",
@@ -241,7 +241,7 @@ export class RgBackend {
     try {
       scratchDir = makeScratchDir();
       stderrFd = openSync(join(scratchDir, "stderr"), "w");
-      child = spawn(this.rgPath, args, {
+      child = spawn(this.rgPath, args as string[], {
         stdio: ["ignore", "pipe", stderrFd],
       });
       this.activeChild = child;
