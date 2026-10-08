@@ -15,6 +15,7 @@ The planned v1 search, policy, output, and component contract is documented in
 ## Usage
 
 ```bash
+bin/codebase-search
 bin/codebase-search files --root .
 bin/codebase-search search 'pattern' --root . --max-results 25
 bin/codebase-search context 'pattern' --root . --before 2 --after 2
@@ -45,7 +46,8 @@ This project follows the reference-AXI pattern set by tools such as [gh-axi](htt
 Deliberate divergences from `gh-axi`, kept because they fit a small local-search tool rather than a networked service adapter:
 
 - JSON is available through the explicit `--json` selector; TOON remains the default (principle 1).
-- No no-argument dashboard; a subcommand is required (principle 8).
+- Bare invocation returns compact workspace orientation without scanning the repository (principle 8).
+- `--fields FIELD,...` projects result records consistently in TOON and JSON while retaining required envelope metadata.
 - Output records carry no next-step suggestions (principle 9).
 - No published npm package or release pipeline; use the repository directly via `bin/codebase-search` (after `npm install && npm run build`).
 

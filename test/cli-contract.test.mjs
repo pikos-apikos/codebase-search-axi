@@ -599,7 +599,7 @@ test("files path projection preserves scalar and byte-encoded paths", async () =
     const { data, code } = await runCli(["files", "--root", root, "--full", "--fields", "path"]);
     assert.equal(code, 0);
     assert.ok(data.files.includes("visible.txt"));
-    assert.ok(data.files.some((item) => item.bytes === "/i50eHQ="));
+    assert.ok(data.files.some((item) => item.bytes === "/y50eHQ="));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
