@@ -2,6 +2,10 @@
 
 A bounded, read-only codebase search CLI for agents, built around [ripgrep](https://github.com/burntsushi/ripgrep) and designed with [AXI](https://github.com/kunchenguid/axi) (Agent eXperience Interface) principles.
 
+**Target architecture (settled):** a single TypeScript/Node package with `axi-sdk-js` as a runtime dependency, invoking `rg` directly; no Python subprocess bridge. The SDK owns dispatch, TOON serialization, structured error plumbing, version fast path, and opt-in agent integrations; this package owns search semantics, file policy, byte fidelity, result processing, bounds, completeness, and command-specific validation.
+
+**Current implementation:** Python 3, retained as a temporary state until the Issue 3 Node port lands.
+
 It provides compact JSON output for file discovery, pattern search, surrounding context, and basic repository metrics.
 Common generated directories and sensitive files are excluded by default.
 
@@ -21,12 +25,12 @@ Run `bin/codebase-search --help` for the complete interface.
 
 ## Requirements
 
-- Python 3
+- Node.js (target) / Python 3 (current)
 - [ripgrep](https://github.com/burntsushi/ripgrep) (`rg`)
 
 ## AXI conformance
 
-This project follows the reference-AXI pattern set by tools such as [gh-axi](https://github.com/kunchenguid/gh-axi): a thin, non-interactive wrapper over an existing CLI (`rg`) that gives agents bounded, machine-readable results, structured error records with nonzero exit codes, a default limit with an explicit `--all` escape hatch (currently unbounded for `files` and `metrics`; `search` and `context` remain capped), a skill under `.agents/skills/`, and tests that exercise the public CLI contract.
+This project follows the reference-AXI pattern set by tools such as [gh-axi](https://github.com/kunchenguid/gh-axi): a thin, non-interactive wrapper over an existing CLI (`rg`) that gives agents bounded, machine-readable results, structured error records with nonzero exit codes, a default limit with an explicit unbounded escape hatch (currently `--all`, unbounded for `files` and `metrics` while `search` and `context` remain capped; the [v1 contract](docs/v1-contract.md) removes `--all` and uses `--full` instead), a skill under `.agents/skills/`, and tests that exercise the public CLI contract.
 
 Deliberate divergences from `gh-axi`, kept because they fit a small local-search tool rather than a networked service adapter:
 
@@ -34,7 +38,7 @@ Deliberate divergences from `gh-axi`, kept because they fit a small local-search
 - No no-argument dashboard; a subcommand is required (principle 8).
 - Output records carry no next-step suggestions (principle 9).
 - No npm package or release pipeline; use the repository directly via `bin/codebase-search`.
-- Implemented in Python 3 instead of TypeScript/Node.
+- Currently implemented in Python 3; the settled target is the TypeScript/Node package described above (a temporary divergence until the Issue 3 port lands).
 
 ## Test
 
