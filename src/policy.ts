@@ -49,24 +49,81 @@ function invalidPolicy(): RgError {
   return new RgError("invalid_policy", "Policy must be a readable TOML file with supported values.");
 }
 
+function stripTomlComment(line: string): string {
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (quote === '"' && escaped) {
+      escaped = false;
+    } else if (quote === '"' && char === "\\") {
+      escaped = true;
+    } else if (quote && char === quote) {
+      quote = undefined;
+    } else if (!quote && (char === '"' || char === "'")) {
+      quote = char;
+    } else if (!quote && char === "#") {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
+function splitTomlArray(raw: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (quote === '"' && escaped) escaped = false;
+    else if (quote === '"' && char === "\\") escaped = true;
+    else if (quote && char === quote) quote = undefined;
+    else if (!quote && (char === '"' || char === "'")) quote = char;
+    else if (!quote && char === "[") depth += 1;
+    else if (!quote && char === "]") depth -= 1;
+    else if (!quote && char === "," && depth === 0) {
+      parts.push(raw.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  if (quote || depth !== 0) throw invalidPolicy();
+  const last = raw.slice(start).trim();
+  if (last) parts.push(last);
+  else if (parts.length > 0) throw invalidPolicy();
+  return parts;
+}
+
+function parseTomlString(value: string): string | undefined {
+  if (value.length < 2) return undefined;
+  if (value[0] === "'" && value.at(-1) === "'") return value.slice(1, -1);
+  if (value[0] !== '"' || value.at(-1) !== '"') return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : undefined;
+  } catch {
+    throw invalidPolicy();
+  }
+}
+
 function parseTomlValue(raw: string): string | number | string[] {
   const value = raw.trim();
-  if (/^-?\d+$/.test(value)) {
+  const stringValue = parseTomlString(value);
+  if (stringValue !== undefined) return stringValue;
+  if (/^\d+$/.test(value)) {
     const number = Number(value);
-    if (!Number.isSafeInteger(number) || number < 0) throw invalidPolicy();
+    if (!Number.isSafeInteger(number)) throw invalidPolicy();
     return number;
   }
   if (value.startsWith("[") && value.endsWith("]")) {
     const inner = value.slice(1, -1).trim();
     if (inner === "") return [];
-    const parts = inner.split(",").map((part) => part.trim());
-    return parts.map((part) => {
-      if (part.length < 2 || part[0] !== '"' || part.at(-1) !== '"') throw invalidPolicy();
-      return part.slice(1, -1).replace(/\\([\\"])/g, "$1");
+    return splitTomlArray(inner).map((part) => {
+      const item = parseTomlString(part);
+      if (item === undefined) throw invalidPolicy();
+      return item;
     });
-  }
-  if (value.length >= 2 && value[0] === '"' && value.at(-1) === '"') {
-    return value.slice(1, -1).replace(/\\([\\"])/g, "$1");
   }
   throw invalidPolicy();
 }
@@ -78,21 +135,33 @@ export function loadPolicy(rawPath: string): PolicyConfig {
     if (!statSync(path).isFile()) throw invalidPolicy();
     const text = readFileSync(path, "utf8");
     const result: PolicyConfig = { optionalGlobs: [] };
+    const seenKeys = new Set<string>();
     let section = "";
-    for (const original of text.split(/\r?\n/)) {
-      const line = original.replace(/#.*/, "").trim();
+    let sectionSeen = false;
+    const lines = text.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      let line = stripTomlComment(lines[index]).trim();
       if (!line) continue;
       const header = /^\[([^\]]+)\]$/.exec(line);
       if (header) {
-        if (header[1] !== "policy") throw invalidPolicy();
+        if (header[1] !== "policy" || sectionSeen) throw invalidPolicy();
         section = header[1];
+        sectionSeen = true;
         continue;
       }
-      const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line);
+      const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
       if (!match || (section && section !== "policy")) throw invalidPolicy();
       const key = match[1];
-      const value = parseTomlValue(match[2]);
-      if (key === "optional_globs" || key === "optional_exclusions") {
+      let rawValue = match[2].trim();
+      while (rawValue.startsWith("[") && !rawValue.endsWith("]")) {
+        index += 1;
+        if (index >= lines.length) throw invalidPolicy();
+        rawValue += ` ${stripTomlComment(lines[index]).trim()}`;
+      }
+      const value = parseTomlValue(rawValue);
+      if (seenKeys.has(key)) throw invalidPolicy();
+      seenKeys.add(key);
+      if (key === "optional_globs") {
         if (!Array.isArray(value)) throw invalidPolicy();
         result.optionalGlobs = value;
       } else if (key === "max_results") result.maxResults = numberValue(value);
@@ -229,10 +298,16 @@ export function resolveRoot(rawRoot: Buffer): ResolvedRoot {
   if (!isDirectory(abs)) {
     throw invalidRoot();
   }
-  rejectDeniedRoot(abs);
+  let canonical: Buffer;
+  try {
+    canonical = realpathSync(abs, { encoding: "buffer" });
+  } catch {
+    throw invalidRoot();
+  }
+  rejectDeniedRoot(canonical);
   const dir = mkdtempSync(join(tmpdir(), "codebase-search-root-"));
   const link = join(dir, "root");
-  symlinkSync(abs, link);
+  symlinkSync(canonical, link);
   return {
     searchPath: link,
     searchPathBytes: Buffer.from(link, "utf-8"),

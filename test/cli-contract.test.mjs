@@ -12,7 +12,7 @@ import {
   unlinkSync,
   symlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -110,6 +110,75 @@ test("setup hooks is explicit, idempotent, and preserves unrelated home files", 
   }
 });
 
+test("setup hooks requires an explicit isolated home", async () => {
+  for (const action of ["status", "install", "uninstall"]) {
+    const { data, code } = await runCli(["setup", "hooks", action]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+  }
+});
+
+test("setup hooks rejects personal home aliases before dispatch", async () => {
+  const personalHome = userInfo().homedir;
+  const aliasRoot = makeRoot();
+  const symlinkHome = join(aliasRoot, "home");
+  symlinkSync(personalHome, symlinkHome, "dir");
+  try {
+    for (const home of [personalHome, join(personalHome, "."), "~", "$HOME", "${HOME}", symlinkHome]) {
+      for (const action of ["status", "install", "uninstall"]) {
+        const { data, code } = await runCli(["setup", "hooks", action, "--home", home]);
+        assert.equal(code, 2);
+        assert.equal(data.status, "error");
+        assert.equal(data.error, "invalid_command");
+      }
+    }
+  } finally {
+    rmSync(aliasRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup hooks rejects the account home when HOME is overridden", async () => {
+  const fakeHome = makeRoot();
+  try {
+    for (const action of ["status", "install", "uninstall"]) {
+      const { data, code } = await runCli(["setup", "hooks", action, "--home", userInfo().homedir], {
+        env: { ...process.env, HOME: fakeHome },
+      });
+      assert.equal(code, 2);
+      assert.equal(data.status, "error");
+      assert.equal(data.error, "invalid_command");
+    }
+  } finally {
+    rmSync(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test("setup hooks surfaces SDK write failures", async () => {
+  for (const action of ["install", "uninstall"]) {
+    const home = makeRoot();
+    try {
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(join(home, ".claude", "settings.json"), "{\n", "utf-8");
+      const { data, code } = await runCli(["setup", "hooks", action, "--home", home]);
+      assert.equal(code, 1);
+      assert.equal(data.status, "error");
+      assert.equal(data.error, "hook_setup_failed");
+      assert.match(data.message, /settings\.json/);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+});
+
+test("setup hooks rejects project-scoped configuration", async () => {
+  for (const flag of ["--scope", "--project-dir"]) {
+    const { data, code } = await runCli(["setup", "hooks", "status", flag, "/tmp/project"]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+  }
+});
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
@@ -311,9 +380,15 @@ test("display text and serialized byte bounds mark truncation", async () => {
     assert.equal(text.code, 0);
     assert.equal(text.data.matches[0].text_truncated, true);
     assert.equal(text.data.matches[0].text_bytes > 6, true);
+    const projected = await runCli(["search", "needle", "--root", root, "--fields", "path", "--max-text-bytes", "1"]);
+    assert.equal(projected.code, 0);
+    assert.deepEqual(projected.data.matches[0], { path: "long.txt" });
     const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "180"]);
     assert.equal(bytes.code, 0);
     assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 180);
+    const tooSmall = await runCli(["search", "needle", "--root", root, "--max-bytes", "1"]);
+    assert.equal(tooSmall.code, 1);
+    assert.equal(tooSmall.data.error, "output_bound");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -342,7 +417,7 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
   try {
     write(root, "visible.txt", "needle\n");
     write(root, "optional/hidden.txt", "needle\n");
-    writeFileSync(policy, 'optional_globs = ["!**/optional/**"]\nmax_results = 1\n');
+    writeFileSync(policy, 'optional_globs = [\n  \'!**/optional/**\', # keep # inside a literal\n]\nmax_results = 1\n');
     const files = await runCli(["files", "--root", root, "--policy", policy, "--full", "--format", "json"]);
     assert.equal(files.code, 0);
     assert.deepEqual([...files.data.files].sort(), ["policy.toml", "visible.txt"]);
@@ -352,6 +427,10 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
     const bad = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(bad.code, 1);
     assert.equal(bad.data.error, "invalid_policy");
+    writeFileSync(malformed, 'max_results = 1\nmax_results = 2\n');
+    const duplicate = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(duplicate.code, 1);
+    assert.equal(duplicate.data.error, "invalid_policy");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
