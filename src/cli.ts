@@ -27,8 +27,6 @@ import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_LIMIT = 50;
-type SetupScope = "user" | "project";
-
 function isPersonalHome(homeDir: string): boolean {
   if (homeDir === "~" || homeDir === "$HOME" || homeDir === "${HOME}") return true;
   const personalHome = userInfo().homedir;
@@ -365,8 +363,8 @@ const COMMAND_SUMMARIES: Record<string, string> = {
 function commandHelp(command: string): string {
   const lines: string[] = [`codebase-search ${command} — ${COMMAND_SUMMARIES[command] ?? ""}`];
   if (command === "setup") {
-    lines.push("Usage: codebase-search setup hooks <install|status|uninstall> [--scope user|project] [--home PATH] [--project-dir PATH]");
-    lines.push("Flags: --scope user|project, --home PATH, --project-dir PATH (isolated --home is required)");
+    lines.push("Usage: codebase-search setup hooks <install|status|uninstall> --home PATH");
+    lines.push("Flags: --home PATH");
     return lines.join("\n");
   }
   if (command === "search" || command === "context" || command === "count") {
@@ -398,28 +396,21 @@ function setupCommand(args: string[]): Record<string, unknown> | string {
   if (args[0] !== "hooks" || !args[1]) throw usageError("use `setup hooks <install|status|uninstall>`");
   const action = args[1];
   if (!["install", "status", "uninstall"].includes(action)) throw usageError("unknown hooks action");
-  let scope: SetupScope = "user";
   let homeDir: string | undefined;
-  let projectDir: string | undefined;
   let json = false;
   for (let i = 2; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--json") {
       json = true;
-    } else if (arg === "--scope" || arg === "--home" || arg === "--project-dir") {
+    } else if (arg === "--home") {
       if (i + 1 >= args.length) throw usageError(`${arg} requires a value`);
-      const value = args[++i];
-      if (arg === "--scope") {
-        if (value !== "user" && value !== "project") throw usageError("--scope must be user or project");
-        scope = value;
-      } else if (arg === "--home") homeDir = value;
-      else projectDir = value;
+      homeDir = args[++i];
     } else throw usageError(`unrecognized argument: ${arg}`);
   }
   if (!homeDir) throw usageError("--home PATH is required for setup hooks");
   if (isPersonalHome(homeDir)) throw usageError("--home must be an isolated home");
   const hookErrors: string[] = [];
-  const options = { scope, homeDir, ...(projectDir ? { projectDir } : {}), onError: (message: string) => hookErrors.push(message) };
+  const options = { scope: "user" as const, homeDir, onError: (message: string) => hookErrors.push(message) };
   let record: Record<string, unknown>;
   if (action === "install") {
     installSessionStartHooks(options);
@@ -514,8 +505,7 @@ function applyOutputBound(record: Record<string, unknown>, maxBytes: number | un
     if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
   }
   if (Buffer.byteLength(JSON.stringify(record) + "\n", "utf8") > maxBytes) {
-    const complete = record.complete;
-    if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
+    throw new RgError("output_bound", "--max-bytes is too small for the serialized result envelope.");
   }
 }
 
@@ -623,8 +613,8 @@ export async function main(): Promise<void> {
             "Scan interrupted; no complete results are available.",
           );
         }
+        applyTextBound(record, parsed.maxTextBytes);
         const projected = projectFields(parsed.command, record, parsed.fields);
-        applyTextBound(projected, parsed.maxTextBytes);
         applyOutputBound(projected, parsed.maxBytes);
         return parsed.json ? JSON.stringify(projected) : projected;
       } finally {
