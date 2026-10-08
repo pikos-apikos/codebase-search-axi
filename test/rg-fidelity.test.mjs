@@ -40,6 +40,7 @@ function write(root, rel, content) {
 }
 
 function runCli(args, { env, cwd, timeoutMs } = {}) {
+  args = args.includes("--json") ? args : [...args, "--json"];
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(NODE, [BIN, ...args], { env: env ?? process.env, cwd });
     let stdout = "";

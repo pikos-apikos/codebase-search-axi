@@ -6,7 +6,7 @@ A bounded, read-only codebase search CLI for agents, built around [ripgrep](http
 
 **Current implementation:** Node.js / TypeScript, dispatching through [`axi-sdk-js`](https://www.npmjs.com/package/axi-sdk-js) and driving `rg` directly (no Python bridge).
 
-It provides compact JSON output for file discovery, pattern search, surrounding context, and basic repository metrics.
+It provides compact TOON output by default, with explicit JSON output for file discovery, pattern search, surrounding context, and basic repository metrics.
 Common generated directories and sensitive files are excluded by default.
 
 The planned v1 search, policy, output, and component contract is documented in
@@ -43,7 +43,7 @@ This project follows the reference-AXI pattern set by tools such as [gh-axi](htt
 
 Deliberate divergences from `gh-axi`, kept because they fit a small local-search tool rather than a networked service adapter:
 
-- Output is compact JSON instead of TOON (principle 1).
+- JSON is available through the explicit `--json` selector; TOON remains the default (principle 1).
 - No no-argument dashboard; a subcommand is required (principle 8).
 - Output records carry no next-step suggestions (principle 9).
 - No published npm package or release pipeline; use the repository directly via `bin/codebase-search` (after `npm install && npm run build`).

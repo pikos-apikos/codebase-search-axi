@@ -21,9 +21,21 @@ import { join } from "node:path";
 import { isValidUtf8 } from "./argv.js";
 import { RgError } from "./backend.js";
 
-/** Mandatory + optional exclusions retained from the existing CLI. */
-export const SAFE_GLOBS: readonly string[] = [
+/** Mandatory exclusions that apply to every search mode. */
+export const MANDATORY_GLOBS: readonly string[] = [
   "!**/.git/**",
+  "!**/.env*",
+  "!**/*.pem",
+  "!**/*.key",
+  "!**/*.crt",
+  "!**/*.cer",
+  "!**/*.p12",
+  "!**/*.pfx",
+  "!**/id_rsa*",
+];
+
+/** Optional exclusions used by bounded searches. */
+export const OPTIONAL_GLOBS: readonly string[] = [
   "!**/node_modules/**",
   "!**/vendor/**",
   "!**/build/**",
@@ -33,14 +45,11 @@ export const SAFE_GLOBS: readonly string[] = [
   "!**/.venv/**",
   "!**/venv/**",
   "!**/__pycache__/**",
-  "!**/.env*",
-  "!**/*.pem",
-  "!**/*.key",
-  "!**/*.crt",
-  "!**/*.cer",
-  "!**/*.p12",
-  "!**/*.pfx",
-  "!**/id_rsa*",
+];
+
+export const SAFE_GLOBS: readonly string[] = [
+  ...MANDATORY_GLOBS,
+  ...OPTIONAL_GLOBS,
 ];
 
 /** A resolved root the backend can search byte-exactly. */

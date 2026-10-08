@@ -21,7 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { SAFE_GLOBS, type ResolvedRoot } from "./policy.js";
+import { MANDATORY_GLOBS, OPTIONAL_GLOBS, type ResolvedRoot } from "./policy.js";
 
 /** A structured backend/scan error with an optional raw diagnostic payload. */
 export class RgError extends Error {
@@ -100,11 +100,11 @@ export class RgBackend {
   /** Set when the CLI was interrupted; scans then never report success. */
   interrupted = false;
 
-  constructor(root: ResolvedRoot, globs: readonly string[] = SAFE_GLOBS) {
+  constructor(root: ResolvedRoot, full = false) {
     this.rgPath = resolveRg();
     this.root = root;
     this.baseArgs = ["--no-config"];
-    for (const glob of globs) {
+    for (const glob of [...MANDATORY_GLOBS, ...(full ? [] : OPTIONAL_GLOBS)]) {
       this.baseArgs.push("--glob", glob);
     }
   }

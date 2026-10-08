@@ -4,12 +4,14 @@
  * structured error plumbing. Does not scan files or construct raw rg
  * arguments directly.
  *
- * Output is the stable compact JSON envelope selected by the explicit
- * `--json` flag; the tool owns result schemas and JSON serialization (the SDK
- * renders strings verbatim).
+ * Output uses SDK-owned TOON serialization by default; the explicit `--json`
+ * flag selects the stable JSON envelope. The tool owns result schemas and
+ * JSON serialization (the SDK renders strings verbatim).
  */
 import {
   AxiError,
+  renderError,
+  renderOutput,
   runAxiCli,
   type AxiCliCommand,
   type AxiCliOptions,
@@ -27,6 +29,8 @@ interface ParsedCommand {
   patternBytes?: Buffer;
   root: ResolvedRoot;
   limit: number | null;
+  full: boolean;
+  json: boolean;
   before: number;
   after: number;
 }
@@ -61,6 +65,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   let maxResults: number | null = null;
   let maxResultsExplicit = false;
   let full = false;
+  let json = false;
   let before = 2;
   let after = 2;
   let pattern: Buffer | undefined;
@@ -104,6 +109,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
       full = true;
       i += 1;
     } else if (arg === "--json") {
+      json = true;
       i += 1;
     } else if (arg === "--all") {
       throw usageError("--all was removed; use --full instead");
@@ -145,6 +151,8 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     command,
     root,
     limit,
+    full,
+    json,
     before: command === "context" ? before : 0,
     after: command === "context" ? after : 0,
   };
@@ -176,8 +184,18 @@ function formatError(error: unknown): { output: string; exitCode: number } {
     process.stderr.write(error.diagnostics);
   }
   const exitCode = USAGE_ERROR_CODES.has(axi.code) ? 2 : 1;
+  const wantsJson = process.argv.slice(2).includes("--json");
   const record: Record<string, unknown> = { status: "error", error: axi.code, message: axi.message };
-  return { output: `${JSON.stringify(record)}\n`, exitCode };
+  return {
+    output: `${wantsJson ? JSON.stringify(record) : renderError(axi.message, axi.code)}\n`,
+    exitCode,
+  };
+}
+
+function renderSelected(record: Record<string, unknown>): string {
+  return process.argv.slice(2).includes("--json")
+    ? JSON.stringify(record)
+    : renderOutput(record);
 }
 
 const HELP = [
@@ -272,11 +290,11 @@ export async function main(): Promise<void> {
         );
       }
       const parsed = parseCommand(command, args);
-      const temp = new RgBackend(parsed.root);
+      const temp = new RgBackend(parsed.root, parsed.full);
       backend = temp;
       try {
         const record = await execute(parsed, temp);
-        return JSON.stringify(record);
+        return parsed.json ? JSON.stringify(record) : record;
       } finally {
         parsed.root.cleanup();
         if (backend === temp) {
@@ -292,7 +310,7 @@ export async function main(): Promise<void> {
     metrics: buildCommand("metrics"),
   };
 
-  // Preserve the tool's JSON error contract for a flag in command position
+  // Preserve the tool's structured error contract for a flag in command position
   // (the SDK's built-in rendering for that case is not the tool envelope).
   // Bare --help and version flags are handled by the SDK itself.
   const argv = process.argv.slice(2);
@@ -301,7 +319,7 @@ export async function main(): Promise<void> {
     (argv[0] === "--help" || argv[0] === "-v" || argv[0] === "-V" || argv[0] === "--version");
   if (argv[0]?.startsWith("-") && !sdkOwned) {
     process.stdout.write(
-      `${JSON.stringify({
+      `${renderSelected({
         status: "error",
         error: "invalid_command",
         message: `Flags must come after the command: ${argv[0]}`,
@@ -318,7 +336,7 @@ export async function main(): Promise<void> {
     getCommandHelp: (command: string) =>
       command in commands ? commandHelp(command) : undefined,
     renderUnknownCommand: (command: string) =>
-      `${JSON.stringify({
+      `${renderSelected({
         status: "error",
         error: "invalid_command",
         message: `Unknown command: ${command}`,

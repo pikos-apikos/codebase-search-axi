@@ -23,7 +23,9 @@ function makeRoot() {
 }
 
 /** Run the CLI, returning { code, stdout, stderr, data }. */
-function runCli(args, { env, root } = {}) {
+function runCli(args, { env, root, json = true } = {}) {
+  const sdkOnly = ["--help", "-v", "-V", "--version"].includes(args[0]);
+  args = json && !sdkOnly && !args.includes("--json") ? [...args, "--json"] : args;
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(NODE, [BIN, ...args], {
       env: env ?? process.env,
@@ -156,7 +158,7 @@ test("missing root is a structured invalid_root error", async () => {
   }
 });
 
-test("--full still denies generated and sensitive paths", async () => {
+test("--full includes optional paths but denies sensitive paths", async () => {
   const root = makeRoot();
   try {
     write(root, "src/app.txt", "needle one\nneedle two\nother\n");
@@ -168,8 +170,8 @@ test("--full still denies generated and sensitive paths", async () => {
     assert.equal(code, 0);
     const paths = new Set(data.matches.map((m) => m.path));
     assert.ok(paths.has("src/app.txt"));
-    assert.ok(!paths.has("node_modules/dependency.txt"));
-    assert.ok(!paths.has("build/generated.txt"));
+    assert.ok(paths.has("node_modules/dependency.txt"));
+    assert.ok(paths.has("build/generated.txt"));
     assert.ok(!paths.has(".env.local"));
     assert.ok(!paths.has("signing.pem"));
   } finally {
@@ -185,6 +187,19 @@ test("--json selects the stable JSON interface", async () => {
     assert.equal(code, 0);
     assert.equal(data.status, "ok");
     assert.equal(data.matches[0].path, "src/app.txt");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("TOON is the default output format", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "needle\n");
+    const { stdout, code } = await runCli(["search", "needle", "--root", root], { json: false });
+    assert.equal(code, 0);
+    assert.match(stdout, /^status:/);
+    assert.ok(!stdout.trimStart().startsWith("{"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
