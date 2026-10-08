@@ -78,7 +78,6 @@ function hasJsonSelector(args: string[]): boolean {
         arg === "--after" ||
         arg === "--fields" ||
         arg === "--policy" ||
-        arg === "--format" ||
         arg === "--scan-max-files" ||
         arg === "--scan-max-bytes" ||
         arg === "--max-text-bytes" ||
@@ -87,6 +86,9 @@ function hasJsonSelector(args: string[]): boolean {
         arg === "--type-not" ||
         arg === "--glob")
     ) {
+      i += 1;
+    } else if (!afterSeparator && arg === "--format") {
+      if (args[i + 1] === "json") return true;
       i += 1;
     }
   }
