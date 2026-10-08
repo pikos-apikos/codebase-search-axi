@@ -79,6 +79,13 @@ test("help lists all subcommands", async () => {
   }
 });
 
+test("bare invocation returns compact orientation without scanning", async () => {
+  const { stdout, code } = await runCli([], { json: false });
+  assert.equal(code, 0);
+  assert.match(stdout, /orientation:/);
+  assert.match(stdout, /files/);
+});
+
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
@@ -381,6 +388,27 @@ test("search supports literal case and type/glob filters", async () => {
     ]);
     assert.equal(code, 0);
     assert.deepEqual(data.matches.map((item) => item.path), ["src/App.TS"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fields project result records while preserving envelope completeness", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "needle\n");
+    const { data, code } = await runCli([
+      "search",
+      "needle",
+      "--root",
+      root,
+      "--full",
+      "--fields",
+      "path,line",
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.matches, [{ path: "src/app.txt", line: 1 }]);
+    assert.deepEqual(data.complete, { scan: true, display: true });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

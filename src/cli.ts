@@ -33,6 +33,7 @@ interface ParsedCommand {
   after: number;
   rgOptions: RgOptions;
   countMatches: boolean;
+  fields: string[];
 }
 
 let outputJson = false;
@@ -51,6 +52,7 @@ function hasJsonSelector(args: string[]): boolean {
         arg === "--max-results" ||
         arg === "--before" ||
         arg === "--after" ||
+        arg === "--fields" ||
         arg === "--type" ||
         arg === "--type-not" ||
         arg === "--glob")
@@ -96,6 +98,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   let after = 2;
   const rgOptions: RgOptions = { types: [], typesNot: [], globs: [] };
   let countMatches = false;
+  let fields: string[] = [];
   let pattern: Buffer | undefined;
   let afterSeparator = false;
 
@@ -139,6 +142,11 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     } else if (arg === "--json") {
       json = true;
       i += 1;
+    } else if (arg === "--fields") {
+      if (i + 1 >= strings.length) throw usageError("--fields requires a value");
+      fields = strings[i + 1].split(",").map((field) => field.trim()).filter(Boolean);
+      if (fields.length === 0) throw usageError("--fields requires at least one field");
+      i += 2;
     } else if (arg === "--fixed-strings") {
       rgOptions.fixedStrings = true;
       i += 1;
@@ -206,6 +214,9 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   if (command === "context" && (before < 0 || after < 0)) {
     throw requestError("context values must not be negative");
   }
+  for (const field of fields) {
+    if (!FIELD_NAMES[command].has(field)) throw usageError(`unknown field for ${command}: ${field}`);
+  }
 
   const root = resolveRoot(rootRaw);
   const limit = full ? null : (maxResults ?? DEFAULT_LIMIT);
@@ -217,6 +228,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     json,
     rgOptions,
     countMatches,
+    fields,
     before: command === "context" ? before : 0,
     after: command === "context" ? after : 0,
   };
@@ -266,7 +278,7 @@ const HELP = [
   "  count     count matching lines or occurrences",
   "  metrics   count bounded files, bytes, and lines",
   "",
-  "Common flags: --root PATH, --max-results N, --full, --json",
+  "Common flags: --root PATH, --max-results N, --full, --json, --fields FIELD[,FIELD...]",
   "Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2",
   "context flags: --before N, --after N",
   "count flags: --count-matches",
@@ -289,7 +301,7 @@ function commandHelp(command: string): string {
   }
   lines.push(
     "",
-    "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json",
+    "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json, --fields FIELD[,FIELD...]",
   );
   if (command === "search" || command === "context" || command === "count") {
     lines.push("Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2");
@@ -299,6 +311,35 @@ function commandHelp(command: string): string {
   }
   if (command === "count") lines.push("Count flags: --count-matches");
   return lines.join("\n");
+}
+
+const FIELD_NAMES: Record<CommandName, ReadonlySet<string>> = {
+  files: new Set(["path"]),
+  search: new Set(["path", "line", "column", "text", "submatches", "end_line", "end_column"]),
+  context: new Set(["path", "line", "column", "text", "submatches", "before", "after", "end_line", "end_column"]),
+  count: new Set(["path", "count"]),
+  metrics: new Set(["files", "bytes", "lines", "files_seen", "bytes_seen", "lines_seen"]),
+};
+
+function projectFields(command: CommandName, record: Record<string, unknown>, fields: string[]): Record<string, unknown> {
+  if (fields.length === 0) return record;
+  for (const field of fields) {
+    if (!FIELD_NAMES[command].has(field)) throw usageError(`unknown field for ${command}: ${field}`);
+  }
+  const projected = { ...record };
+  const collection = command === "files" ? "files" : command === "count" ? "counts" : command === "search" || command === "context" ? "matches" : undefined;
+  if (collection && Array.isArray(record[collection])) {
+    projected[collection] = (record[collection] as Array<Record<string, unknown>>).map((item) =>
+      Object.fromEntries(fields.filter((field) => field in item).map((field) => [field, item[field]])),
+    );
+    return projected;
+  }
+  for (const key of Object.keys(record)) {
+    if (!fields.includes(key) && !["status", "command", "bounded", "complete", "count", "returned", "total", "matched_files", "help"].includes(key)) {
+      delete projected[key];
+    }
+  }
+  return projected;
 }
 
 function execute(
@@ -373,7 +414,8 @@ export async function main(): Promise<void> {
             "Scan interrupted; no complete results are available.",
           );
         }
-        return parsed.json ? JSON.stringify(record) : record;
+        const projected = projectFields(parsed.command, record, parsed.fields);
+        return parsed.json ? JSON.stringify(projected) : projected;
       } finally {
         parsed.root.cleanup();
         if (backend === temp) {
@@ -399,13 +441,14 @@ export async function main(): Promise<void> {
     topLevelHelp: HELP,
     getCommandHelp: (command: string) =>
       command in commands ? commandHelp(command) : undefined,
-    home: async () => {
-      throw new AxiError(
-        "A subcommand is required.",
-        "invalid_command",
-        ["Run `codebase-search --help` to see available commands."],
-      );
-    },
+    home: async () => ({
+      orientation: "bounded, read-only ripgrep discovery under mandatory exclusions",
+      commands: ["files", "search", "context", "count", "metrics"],
+      help: [
+        "Run `codebase-search --help` for commands.",
+        "Use --full only when an unbounded scan is intended.",
+      ],
+    }),
     commands,
   };
   if (outputJson) {
