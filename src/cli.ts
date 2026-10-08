@@ -279,6 +279,7 @@ const HELP = [
   "  metrics   count bounded files, bytes, and lines",
   "",
   "Common flags: --root PATH, --max-results N, --full, --json, --fields FIELD[,FIELD...]",
+  "Metrics fields: files, bytes, lines (or bounded observations files_seen, bytes_seen, lines_seen)",
   "Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2",
   "context flags: --before N, --after N",
   "count flags: --count-matches",
@@ -303,6 +304,9 @@ function commandHelp(command: string): string {
     "",
     "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json, --fields FIELD[,FIELD...]",
   );
+  if (command === "metrics") {
+    lines.push("Metrics fields: files, bytes, lines (or bounded observations files_seen, bytes_seen, lines_seen)");
+  }
   if (command === "search" || command === "context" || command === "count") {
     lines.push("Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2");
   }
@@ -334,8 +338,12 @@ function projectFields(command: CommandName, record: Record<string, unknown>, fi
     );
     return projected;
   }
+  const projectedFields =
+    command === "metrics" && record.bounded === true
+      ? fields.map((field) => field.endsWith("_seen") ? field : `${field}_seen`)
+      : fields;
   for (const key of Object.keys(record)) {
-    if (!fields.includes(key) && !["status", "command", "bounded", "complete", "count", "returned", "total", "matched_files", "help"].includes(key)) {
+    if (!projectedFields.includes(key) && !["status", "command", "bounded", "complete", "count", "returned", "total", "matched_files", "help"].includes(key)) {
       delete projected[key];
     }
   }

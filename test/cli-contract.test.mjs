@@ -541,3 +541,52 @@ test("bounded metrics reports observations, not totals", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("metrics fields preserve aliases across bounded and full JSON/TOON output", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "a.txt", "x\ny\n");
+    const boundedJson = await runCli([
+      "metrics",
+      "--root",
+      root,
+      "--fields",
+      "files,bytes,lines",
+      "--json",
+    ]);
+    assert.equal(boundedJson.code, 0);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(boundedJson.data).filter(([key]) => key.endsWith("_seen"))),
+      { files_seen: 1, bytes_seen: 4, lines_seen: 2 },
+    );
+
+    const boundedToon = await runCli([
+      "metrics",
+      "--root",
+      root,
+      "--fields",
+      "files,bytes,lines",
+    ], { json: false });
+    assert.equal(boundedToon.code, 0);
+    assert.match(boundedToon.stdout, /files_seen: 1/);
+    assert.match(boundedToon.stdout, /bytes_seen: 4/);
+    assert.match(boundedToon.stdout, /lines_seen: 2/);
+
+    const full = await runCli([
+      "metrics",
+      "--root",
+      root,
+      "--full",
+      "--fields",
+      "files,bytes,lines",
+    ]);
+    assert.equal(full.code, 0);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(full.data).filter(([key]) => ["files", "bytes", "lines"].includes(key))),
+      { files: 1, bytes: 4, lines: 2 },
+    );
+    assert.equal(full.data.files_seen, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
