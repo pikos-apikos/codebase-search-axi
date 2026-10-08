@@ -2,14 +2,13 @@
 import base64
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
-
+from pathlib import Path
 
 CLI = Path(__file__).resolve().parents[1] / 'bin' / 'codebase-search'
 
@@ -32,7 +31,7 @@ class RgFidelity(unittest.TestCase):
         args = [sys.executable, str(CLI), command, '--root', str(self.root), *flags]
         if command in ('search', 'context'):
             args += ['--', pattern]
-        proc = subprocess.run(args, capture_output=True, env=env, timeout=8)
+        proc = subprocess.run(args, capture_output=True, env=env, timeout=8, check=False)
         self.assertNotIn(b'Traceback', proc.stderr)
         return proc, json.loads(proc.stdout)
 
@@ -157,7 +156,7 @@ class RgFidelity(unittest.TestCase):
                     with self.subTest(pattern=pattern, command=command, flags=flags):
                         direct = subprocess.run(
                             ['rg', '--no-config', '--json', '-e', pattern, '--', str(self.root)],
-                            capture_output=True, timeout=8)
+                            capture_output=True, timeout=8, check=False)
                         self.assertEqual(direct.returncode, 2)
                         self.assertIn(diagnostic, direct.stderr)
                         proc, data = self.cli(command, pattern, *flags)
