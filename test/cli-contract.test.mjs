@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
   mkdirSync,
@@ -11,7 +12,7 @@ import {
   unlinkSync,
   symlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -84,6 +85,99 @@ test("bare invocation returns compact orientation without scanning", async () =>
   assert.equal(code, 0);
   assert.match(stdout, /orientation:/);
   assert.match(stdout, /files/);
+});
+
+test("setup hooks is explicit, idempotent, and preserves unrelated home files", async () => {
+  const home = makeRoot();
+  try {
+    const unrelated = join(home, "unrelated.json");
+    writeFileSync(unrelated, '{"keep":true}\n', "utf-8");
+    for (const action of ["status", "install", "status", "uninstall", "status"]) {
+      const { data, code } = await runCli([
+        "setup",
+        "hooks",
+        action,
+        "--home",
+        home,
+      ]);
+      assert.equal(code, 0);
+      assert.equal(data.status, "ok");
+      assert.equal(data.command, "setup");
+    }
+    assert.equal(readFileSync(unrelated, "utf-8"), '{"keep":true}\n');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("setup hooks rejects project-scoped configuration", async () => {
+  for (const flag of ["--scope", "--project-dir"]) {
+    const { data, code } = await runCli(["setup", "hooks", "status", flag, "/tmp/project"]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+  }
+});
+
+test("setup hooks requires an explicit isolated home", async () => {
+  for (const action of ["status", "install", "uninstall"]) {
+    const { data, code } = await runCli(["setup", "hooks", action]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+  }
+});
+
+test("setup hooks rejects personal home aliases before dispatch", async () => {
+  const personalHome = userInfo().homedir;
+  const aliasRoot = makeRoot();
+  const symlinkHome = join(aliasRoot, "home");
+  symlinkSync(personalHome, symlinkHome, "dir");
+  try {
+    for (const home of [personalHome, join(personalHome, "."), "~", "$HOME", "${HOME}", symlinkHome]) {
+      for (const action of ["status", "install", "uninstall"]) {
+        const { data, code } = await runCli(["setup", "hooks", action, "--home", home]);
+        assert.equal(code, 2);
+        assert.equal(data.status, "error");
+        assert.equal(data.error, "invalid_command");
+      }
+    }
+  } finally {
+    rmSync(aliasRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup hooks rejects the account home when HOME is overridden", async () => {
+  const fakeHome = makeRoot();
+  try {
+    for (const action of ["status", "install", "uninstall"]) {
+      const { data, code } = await runCli(["setup", "hooks", action, "--home", userInfo().homedir], {
+        env: { ...process.env, HOME: fakeHome },
+      });
+      assert.equal(code, 2);
+      assert.equal(data.status, "error");
+      assert.equal(data.error, "invalid_command");
+    }
+  } finally {
+    rmSync(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test("setup hooks surfaces SDK write failures", async () => {
+  for (const action of ["install", "uninstall"]) {
+    const home = makeRoot();
+    try {
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(join(home, ".claude", "settings.json"), "{\n", "utf-8");
+      const { data, code } = await runCli(["setup", "hooks", action, "--home", home]);
+      assert.equal(code, 1);
+      assert.equal(data.status, "error");
+      assert.equal(data.error, "hook_setup_failed");
+      assert.match(data.message, /settings\.json/);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
 });
 
 test("unknown command is a structured invalid_command error", async () => {

@@ -24,7 +24,7 @@ Implemented principles:
 - per-command help includes scope and output controls, with actionable hints
   for bounded results.
 
-Remaining gaps belong to later tickets: packaging and catalog integration
-(#7), agent hook use beyond the SDK runtime, direct-rg measurement (#8), and
-release/publication or admission decisions (#9/#10). This checklist does not
-claim those integrations are complete.
+Packaging and isolated opt-in agent hook integration are covered by #7.
+Remaining gaps belong to later tickets: catalog integration, direct-rg
+measurement (#8), and release/publication or admission decisions (#9/#10).
+This checklist does not claim those integrations are complete.

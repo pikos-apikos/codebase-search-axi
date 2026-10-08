@@ -47,3 +47,9 @@ jobs:
       # and runs the Node test suite (CLI contract + rg fidelity regressions).
       - name: Run public CLI test suite
         run: bash tests/codebase-search.test.sh
+
+      - name: Check generated skill
+        run: npm run check:skill
+
+      - name: Verify package install and opt-in integrations
+        run: npm run package:check

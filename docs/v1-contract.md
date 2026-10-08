@@ -319,5 +319,7 @@ interactive prompts. V11–V13 map the content-first orientation, executable
 identity, help, version discovery, and field-selection principles to #6.
 The corresponding source is the
 [AXI CLI skill](https://github.com/kunchenguid/axi/blob/main/.agents/skills/axi/SKILL.md).
-Ambient integrations, packaging, benchmarking, publication, and catalog
-admission remain outside this contract and belong to later map tickets.
+Ambient integrations, benchmarking, publication, and catalog admission remain
+outside this contract and belong to later map tickets. Packaging and isolated
+opt-in agent hook integration are implemented by #7 but remain outside this
+search-interface contract.

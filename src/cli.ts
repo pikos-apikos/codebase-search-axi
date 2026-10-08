@@ -10,10 +10,16 @@
  */
 import {
   AxiError,
+  installSessionStartHooks,
   runAxiCli,
+  sessionStartHookStatus,
+  uninstallSessionStartHooks,
   type AxiCliCommand,
   type AxiCliOptions,
 } from "axi-sdk-js";
+import { realpathSync } from "node:fs";
+import { userInfo } from "node:os";
+import { resolve } from "node:path";
 import { RgBackend, reap, RgError, type RgOptions } from "./backend.js";
 import { count, files, matches, metrics } from "./results.js";
 import { resolveRoot, type ResolvedRoot } from "./policy.js";
@@ -21,6 +27,17 @@ import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_LIMIT = 50;
+
+function isPersonalHome(homeDir: string): boolean {
+  if (homeDir === "~" || homeDir === "$HOME" || homeDir === "${HOME}") return true;
+  const personalHome = userInfo().homedir;
+  if (resolve(homeDir) === resolve(personalHome)) return true;
+  try {
+    return realpathSync(homeDir) === realpathSync(personalHome);
+  } catch {
+    return false;
+  }
+}
 
 interface ParsedCommand {
   command: "files" | "search" | "context" | "metrics" | "count";
@@ -275,6 +292,7 @@ const HELP = [
   "Defaults exclude generated and sensitive paths.",
   "",
   "Subcommands:",
+  "  setup     install, inspect, or remove opt-in agent hooks",
   "  files     discover files",
   "  search    search file contents",
   "  context   search with surrounding lines",
@@ -298,6 +316,11 @@ const COMMAND_SUMMARIES: Record<string, string> = {
 
 function commandHelp(command: string): string {
   const lines: string[] = [`codebase-search ${command} — ${COMMAND_SUMMARIES[command] ?? ""}`];
+  if (command === "setup") {
+    lines.push("Usage: codebase-search setup hooks <install|status|uninstall> --home PATH");
+    lines.push("Flags: --home PATH");
+    return lines.join("\n");
+  }
   if (command === "search" || command === "context" || command === "count") {
     lines.push(`Usage: codebase-search ${command} PATTERN [flags] [-- PATTERN]`);
   } else {
@@ -318,6 +341,45 @@ function commandHelp(command: string): string {
   }
   if (command === "count") lines.push("Count flags: --count-matches");
   return lines.join("\n");
+}
+
+function setupCommand(args: string[]): Record<string, unknown> | string {
+  if (args.length === 0 || args[0] === "--help") {
+    throw usageError("setup requires hooks install, status, or uninstall");
+  }
+  if (args[0] !== "hooks" || !args[1]) throw usageError("use `setup hooks <install|status|uninstall>`");
+  const action = args[1];
+  if (!["install", "status", "uninstall"].includes(action)) throw usageError("unknown hooks action");
+  let homeDir: string | undefined;
+  let json = false;
+  for (let i = 2; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--json") {
+      json = true;
+    } else if (arg === "--home") {
+      if (i + 1 >= args.length) throw usageError(`${arg} requires a value`);
+      const value = args[++i];
+      homeDir = value;
+    } else throw usageError(`unrecognized argument: ${arg}`);
+  }
+  if (!homeDir) throw usageError("--home PATH is required for setup hooks");
+  if (isPersonalHome(homeDir)) throw usageError("--home must be an isolated home");
+  const hookErrors: string[] = [];
+  const options = { scope: "user" as const, homeDir, onError: (message: string) => hookErrors.push(message) };
+  let record: Record<string, unknown>;
+  if (action === "install") {
+    installSessionStartHooks(options);
+    record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
+  } else if (action === "uninstall") {
+    uninstallSessionStartHooks(options);
+    record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
+  } else {
+    record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
+  }
+  if (hookErrors.length > 0) {
+    throw new AxiError(`setup hooks ${action} failed: ${hookErrors.join("; ")}`, "hook_setup_failed");
+  }
+  return json ? JSON.stringify(record) : record;
 }
 
 const FIELD_NAMES: Record<CommandName, ReadonlySet<string>> = {
@@ -440,6 +502,7 @@ export async function main(): Promise<void> {
     };
 
   const commands: Record<string, AxiCliCommand<undefined>> = {
+    setup: async (args: string[]) => setupCommand(args),
     files: buildCommand("files"),
     search: buildCommand("search"),
     context: buildCommand("context"),

@@ -9,7 +9,9 @@
   },
   "files": [
     "bin",
-    "dist"
+    "dist",
+    "skills",
+    "README.md"
   ],
   "engines": {
     "node": ">=20"
@@ -17,7 +19,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test",
-    "pretest": "npm run build"
+    "pretest": "npm run build",
+    "check:skill": "node scripts/check-skill.mjs",
+    "package:check": "npm run build && npm run check:skill && node scripts/package-check.mjs",
+    "prepack": "npm run build && npm run check:skill"
   },
   "dependencies": {
     "axi-sdk-js": "0.1.13"
