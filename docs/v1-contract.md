@@ -25,8 +25,9 @@ described separately from the search commands.
 
 The tested baseline is commit
 `6f2d53d8aa22cf05380a41bcca93be238c50c3df` (ripgrep 15.2.0 in the test
-environment). `tests/codebase-search.test.sh` passes. The baseline currently
-has these known defects and omissions:
+environment). `tests/codebase-search.test.sh` passes. The historical baseline
+predates the implementation slices mapped in the verification matrix below;
+its former gaps are not current interface behavior:
 
 - only `files`, `search`, `context`, and secondary `metrics` exist; `count`
   does not exist;
