@@ -17,6 +17,7 @@ import {
   type AxiCliCommand,
   type AxiCliOptions,
 } from "axi-sdk-js";
+import { encode as encodeToon } from "@toon-format/toon";
 import { realpathSync } from "node:fs";
 import { userInfo } from "node:os";
 import { resolve } from "node:path";
@@ -27,6 +28,8 @@ import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_LIMIT = 50;
+const DEFAULT_MAX_TEXT_BYTES = 4096;
+const DEFAULT_MAX_BYTES = 65536;
 function isPersonalHome(homeDir: string): boolean {
   if (homeDir === "~" || homeDir === "$HOME" || homeDir === "${HOME}") return true;
   const personalHome = userInfo().homedir;
@@ -291,10 +294,10 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     countMatches,
     fields,
     policy,
-    scanMaxFiles: scanMaxFiles ?? policy.scanMaxFiles,
-    scanMaxBytes: scanMaxBytes ?? policy.scanMaxBytes,
-    maxTextBytes: maxTextBytes ?? policy.maxTextBytes,
-    maxBytes: maxBytes ?? policy.maxBytes,
+    scanMaxFiles: full ? undefined : scanMaxFiles ?? policy.scanMaxFiles,
+    scanMaxBytes: full ? undefined : scanMaxBytes ?? policy.scanMaxBytes,
+    maxTextBytes: full ? undefined : maxTextBytes ?? policy.maxTextBytes ?? DEFAULT_MAX_TEXT_BYTES,
+    maxBytes: full ? undefined : maxBytes ?? policy.maxBytes ?? DEFAULT_MAX_BYTES,
     before: command === "context" ? before : 0,
     after: command === "context" ? after : 0,
   };
@@ -451,6 +454,19 @@ function encodeValue(bytes: Buffer): string | { bytes: string } {
   }
 }
 
+function boundedUtf8Prefix(bytes: Buffer, maxBytes: number): Buffer {
+  let end = Math.min(bytes.length, maxBytes);
+  while (end > 0) {
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end));
+      return bytes.subarray(0, end);
+    } catch {
+      end -= 1;
+    }
+  }
+  return Buffer.alloc(0);
+}
+
 function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | undefined): void {
   if (maxTextBytes === undefined) return;
   const collection = record.matches;
@@ -468,7 +484,7 @@ function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | 
       const bytes = valueBytes(value);
       if (!bytes) return value;
       const remaining = Math.max(0, maxTextBytes - used);
-      const kept = bytes.subarray(0, remaining);
+      const kept = boundedUtf8Prefix(bytes, remaining);
       used += bytes.length;
       originalBytes += bytes.length;
       if (kept.length !== bytes.length) truncated = true;
@@ -488,23 +504,36 @@ function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | 
       });
     }
     entry.text_bytes = originalBytes;
-    if (truncated) entry.text_truncated = true;
+    if (truncated) {
+      entry.text_truncated = true;
+      const complete = record.complete;
+      if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
+    }
   }
 }
 
-function applyOutputBound(record: Record<string, unknown>, maxBytes: number | undefined): void {
+function serializeRecord(record: Record<string, unknown>, json: boolean): string {
+  return json ? JSON.stringify(record) : encodeToon(record);
+}
+
+function applyOutputBound(record: Record<string, unknown>, maxBytes: number | undefined, json: boolean): void {
   if (maxBytes === undefined) return;
   const collectionKey = ["files", "matches", "counts"].find((key) => Array.isArray(record[key]));
-  if (!collectionKey) return;
+  if (!collectionKey) {
+    if (Buffer.byteLength(serializeRecord(record, json) + "\n", "utf8") > maxBytes) {
+      throw new RgError("output_bound", "--max-bytes is too small for the serialized result envelope.");
+    }
+    return;
+  }
   const collection = record[collectionKey] as unknown[];
-  while (collection.length > 0 && Buffer.byteLength(JSON.stringify(record) + "\n", "utf8") > maxBytes) {
+  while (collection.length > 0 && Buffer.byteLength(serializeRecord(record, json) + "\n", "utf8") > maxBytes) {
     collection.pop();
     record.returned = collection.length;
     if ("count" in record) record.count = collection.length;
     const complete = record.complete;
     if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
   }
-  if (Buffer.byteLength(JSON.stringify(record) + "\n", "utf8") > maxBytes) {
+  if (Buffer.byteLength(serializeRecord(record, json) + "\n", "utf8") > maxBytes) {
     throw new RgError("output_bound", "--max-bytes is too small for the serialized result envelope.");
   }
 }
@@ -522,7 +551,10 @@ function projectFields(command: CommandName, record: Record<string, unknown>, fi
   }
   if (collection && Array.isArray(record[collection])) {
     projected[collection] = (record[collection] as Array<Record<string, unknown>>).map((item) =>
-      Object.fromEntries(fields.filter((field) => field in item).map((field) => [field, item[field]])),
+      Object.fromEntries([
+        ...fields,
+        ...(fields.some((field) => ["text", "before", "after", "submatches"].includes(field)) ? ["text_bytes", "text_truncated"] : []),
+      ].filter((field, index, all) => all.indexOf(field) === index && field in item).map((field) => [field, item[field]])),
     );
     return projected;
   }
@@ -615,7 +647,7 @@ export async function main(): Promise<void> {
         }
         applyTextBound(record, parsed.maxTextBytes);
         const projected = projectFields(parsed.command, record, parsed.fields);
-        applyOutputBound(projected, parsed.maxBytes);
+        applyOutputBound(projected, parsed.maxBytes, parsed.json);
         return parsed.json ? JSON.stringify(projected) : projected;
       } finally {
         parsed.root.cleanup();

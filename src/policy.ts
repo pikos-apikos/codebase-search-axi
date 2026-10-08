@@ -49,38 +49,54 @@ function invalidPolicy(): RgError {
   return new RgError("invalid_policy", "Policy must be a readable TOML file with supported values.");
 }
 
-function stripTomlComment(line: string): string {
-  let quote: '"' | "'" | undefined;
+function stripTomlComment(line: string, initialQuote?: '"""' | "'''" ): { text: string; quote?: '"""' | "'''" } {
+  let quote: '"""' | "'''" | '"' | "'" | undefined = initialQuote;
   let escaped = false;
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i];
-    if (quote === '"' && escaped) {
+    if (quote && (quote === '"""' || quote === "'''") && line.startsWith(quote, i)) {
+      i += 2;
+      quote = undefined;
+    } else if (quote === '"""' && escaped) {
+      escaped = false;
+    } else if (quote === '"""' && char === "\\") {
+      escaped = true;
+    } else if (quote === '"' && escaped) {
       escaped = false;
     } else if (quote === '"' && char === "\\") {
       escaped = true;
-    } else if (quote && char === quote) {
+    } else if ((quote === '"' || quote === "'") && char === quote) {
       quote = undefined;
+    } else if (!quote && (line.startsWith('"""', i) || line.startsWith("'''", i))) {
+      quote = line.slice(i, i + 3) as '"""' | "'''";
+      i += 2;
     } else if (!quote && (char === '"' || char === "'")) {
       quote = char;
     } else if (!quote && char === "#") {
-      return line.slice(0, i);
+      return { text: line.slice(0, i) };
     }
   }
-  return line;
+  return { text: line, quote: quote === '"""' || quote === "'''" ? quote : undefined };
 }
 
 function splitTomlArray(raw: string): string[] {
   const parts: string[] = [];
   let start = 0;
   let depth = 0;
-  let quote: '"' | "'" | undefined;
+  let quote: '"' | "'" | '"""' | "'''" | undefined;
   let escaped = false;
   for (let i = 0; i < raw.length; i += 1) {
     const char = raw[i];
-    if (quote === '"' && escaped) escaped = false;
-    else if (quote === '"' && char === "\\") escaped = true;
+    if (quote && (quote === '"""' || quote === "'''") && raw.startsWith(quote, i)) {
+      i += 2;
+      quote = undefined;
+    } else if (quote === '"' && escaped) escaped = false;
+    else if ((quote === '"' || quote === '"""') && char === "\\") escaped = true;
     else if (quote && char === quote) quote = undefined;
-    else if (!quote && (char === '"' || char === "'")) quote = char;
+    else if (!quote && (raw.startsWith('"""', i) || raw.startsWith("'''", i))) {
+      quote = raw.slice(i, i + 3) as '"""' | "'''";
+      i += 2;
+    } else if (!quote && (char === '"' || char === "'")) quote = char;
     else if (!quote && char === "[") depth += 1;
     else if (!quote && char === "]") depth -= 1;
     else if (!quote && char === "," && depth === 0) {
@@ -91,28 +107,50 @@ function splitTomlArray(raw: string): string[] {
   if (quote || depth !== 0) throw invalidPolicy();
   const last = raw.slice(start).trim();
   if (last) parts.push(last);
-  else if (parts.length > 0) throw invalidPolicy();
   return parts;
 }
 
 function parseTomlString(value: string): string | undefined {
   if (value.length < 2) return undefined;
+  const triple = value.slice(0, 3);
+  if (triple === "'''" && value.endsWith("'''")) return value.slice(3, -3).replace(/^\r?\n/, "");
+  if (triple === '"""' && value.endsWith('"""')) return decodeBasicString(value.slice(3, -3).replace(/^\r?\n/, ""));
   if (value[0] === "'" && value.at(-1) === "'") return value.slice(1, -1);
   if (value[0] !== '"' || value.at(-1) !== '"') return undefined;
-  try {
-    const parsed = JSON.parse(value);
-    return typeof parsed === "string" ? parsed : undefined;
-  } catch {
-    throw invalidPolicy();
+  return decodeBasicString(value.slice(1, -1));
+}
+
+function decodeBasicString(value: string): string {
+  let output = "";
+  for (let i = 0; i < value.length; i += 1) {
+    if (value[i] !== "\\") {
+      output += value[i];
+      continue;
+    }
+    const escape = value[++i];
+    const escapes: Record<string, string> = { b: "\b", t: "\t", n: "\n", f: "\f", r: "\r", '"': '"', "\\": "\\" };
+    if (escape in escapes) output += escapes[escape];
+    else if (escape === "u" || escape === "U") {
+      const width = escape === "u" ? 4 : 8;
+      const code = Number.parseInt(value.slice(i + 1, i + 1 + width), 16);
+      if (!Number.isInteger(code) || code > 0x10ffff) throw invalidPolicy();
+      output += String.fromCodePoint(code);
+      i += width;
+    } else if (escape === "\n") {
+      while (i + 1 < value.length && /[ \t\r\n]/.test(value[i + 1])) i += 1;
+    } else {
+      throw invalidPolicy();
+    }
   }
+  return output;
 }
 
 function parseTomlValue(raw: string): string | number | string[] {
   const value = raw.trim();
   const stringValue = parseTomlString(value);
   if (stringValue !== undefined) return stringValue;
-  if (/^\d+$/.test(value)) {
-    const number = Number(value);
+  if (/^[+-]?(?:0|[1-9](?:_?[0-9])*)$/.test(value)) {
+    const number = Number(value.replaceAll("_", ""));
     if (!Number.isSafeInteger(number)) throw invalidPolicy();
     return number;
   }
@@ -139,8 +177,11 @@ export function loadPolicy(rawPath: string): PolicyConfig {
     let section = "";
     let sectionSeen = false;
     const lines = text.split(/\r?\n/);
+    let multilineQuote: '"""' | "'''" | undefined;
     for (let index = 0; index < lines.length; index += 1) {
-      let line = stripTomlComment(lines[index]).trim();
+      const stripped = stripTomlComment(lines[index], multilineQuote);
+      multilineQuote = stripped.quote;
+      let line = stripped.text.trim();
       if (!line) continue;
       const header = /^\[([^\]]+)\]$/.exec(line);
       if (header) {
@@ -156,7 +197,9 @@ export function loadPolicy(rawPath: string): PolicyConfig {
       while (rawValue.startsWith("[") && !rawValue.endsWith("]")) {
         index += 1;
         if (index >= lines.length) throw invalidPolicy();
-        rawValue += ` ${stripTomlComment(lines[index]).trim()}`;
+        const continuation = stripTomlComment(lines[index], multilineQuote);
+        multilineQuote = continuation.quote;
+        rawValue += ` ${continuation.text.trim()}`;
       }
       const value = parseTomlValue(rawValue);
       if (seenKeys.has(key)) throw invalidPolicy();
@@ -171,6 +214,7 @@ export function loadPolicy(rawPath: string): PolicyConfig {
       else if (key === "scan_max_bytes") result.scanMaxBytes = numberValue(value);
       else throw invalidPolicy();
     }
+    if (multilineQuote) throw invalidPolicy();
     return result;
   } catch (error) {
     if (error instanceof RgError && error.code === "invalid_policy") throw error;
