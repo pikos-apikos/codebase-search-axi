@@ -222,7 +222,6 @@ export async function count(
   limit: number | null,
   countMatches = false,
 ): Promise<Record<string, unknown>> {
-  const values: Array<{ path: Value; count: number }> = [];
   const byPath = new Map<string, { path: Value; count: number }>();
   let total = 0;
   for await (const event of backend.events(pattern, 0, 0)) {
@@ -234,13 +233,19 @@ export async function count(
     if (!item) {
       item = { path, count: 0 };
       byPath.set(key, item);
-      if (limit === null || values.length < limit) values.push(item);
     }
     const submatches = (data["submatches"] as unknown[] | undefined) ?? [];
     const increment = countMatches ? Math.max(1, submatches.length) : 1;
     item.count += increment;
     total += increment;
   }
+  const values = [...byPath.values()]
+    .sort((left, right) => {
+      const leftKey = JSON.stringify(left.path);
+      const rightKey = JSON.stringify(right.path);
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    })
+    .slice(0, limit ?? undefined);
   return {
     status: "ok",
     command: "count",
