@@ -494,7 +494,10 @@ function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | 
       used += bytes.length;
       originalBytes += bytes.length;
       if (kept.length !== bytes.length) truncated = true;
-      return encodeValue(kept);
+      // Preserve the producer's byte-valued representation even when the
+      // bounded prefix happens to be valid UTF-8. A binary line must not
+      // silently change type merely because its retained prefix is printable.
+      return isByteValue(value) ? { bytes: kept.toString("base64") } : encodeValue(kept);
     };
     for (const field of fields) {
       const value = entry[field];
