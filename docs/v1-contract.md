@@ -299,7 +299,7 @@ exercise the public CLI, not private helpers.
 | --- | --- | --- |
 | V1 | Existing baseline suite, required `rg`, no fallback, structured errors | #3, #6 |
 | V2 | Regex/literal, case modes, type/glob, multiline, optional PCRE2 match `rg` | #3 |
-| V3 | Files/search/context/count schemas, ordering, byte offsets, context boundaries, and deduplicated overlapping context for adjacent records in one file | #5 |
+| V3 | Files/search/context/count schemas, ordering, byte offsets, context boundaries, and deduplicated overlapping context for adjacent records in one file; native multiline count versus per-line count | #5 |
 | V4 | Normal ignore behavior versus `--no-ignore`/`--hidden`; binary behavior | #3, #5 |
 | V5 | Mandatory denied paths remain denied under `--full`, globs, and ignore flags | #4 |
 | V6 | Explicit policy loading, precedence, root changes, canonical paths, symlinks | #4 |
