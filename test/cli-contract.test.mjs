@@ -79,6 +79,13 @@ test("help lists all subcommands", async () => {
   }
 });
 
+test("bare invocation returns compact orientation without scanning", async () => {
+  const { stdout, code } = await runCli([], { json: false });
+  assert.equal(code, 0);
+  assert.match(stdout, /orientation:/);
+  assert.match(stdout, /files/);
+});
+
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
@@ -386,6 +393,27 @@ test("search supports literal case and type/glob filters", async () => {
   }
 });
 
+test("fields project result records while preserving envelope completeness", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "needle\n");
+    const { data, code } = await runCli([
+      "search",
+      "needle",
+      "--root",
+      root,
+      "--full",
+      "--fields",
+      "path,line",
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.matches, [{ path: "src/app.txt", line: 1 }]);
+    assert.deepEqual(data.complete, { scan: true, display: true });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("files supports type exclusions and native ignore controls", async () => {
   const root = makeRoot();
   try {
@@ -509,6 +537,83 @@ test("bounded metrics reports observations, not totals", async () => {
     assert.ok(data.bytes_seen > 0);
     assert.ok(data.lines_seen >= 1);
     assert.equal(data.complete.scan, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("metrics fields preserve aliases across bounded and full JSON/TOON output", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "a.txt", "x\ny\n");
+    const boundedJson = await runCli([
+      "metrics",
+      "--root",
+      root,
+      "--fields",
+      "files,bytes,lines",
+      "--json",
+    ]);
+    assert.equal(boundedJson.code, 0);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(boundedJson.data).filter(([key]) => key.endsWith("_seen"))),
+      { files_seen: 1, bytes_seen: 4, lines_seen: 2 },
+    );
+
+    const boundedToon = await runCli([
+      "metrics",
+      "--root",
+      root,
+      "--fields",
+      "files,bytes,lines",
+    ], { json: false });
+    assert.equal(boundedToon.code, 0);
+    assert.match(boundedToon.stdout, /files_seen: 1/);
+    assert.match(boundedToon.stdout, /bytes_seen: 4/);
+    assert.match(boundedToon.stdout, /lines_seen: 2/);
+
+    const full = await runCli([
+      "metrics",
+      "--root",
+      root,
+      "--full",
+      "--fields",
+      "files,bytes,lines",
+    ]);
+    assert.equal(full.code, 0);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(full.data).filter(([key]) => ["files", "bytes", "lines"].includes(key))),
+      { files: 1, bytes: 4, lines: 2 },
+    );
+    assert.equal(full.data.files_seen, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("files path projection preserves scalar and byte-encoded paths", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "visible.txt", "x\n");
+    writeFileSync(Buffer.concat([Buffer.from(`${root}/`), Buffer.from([0xff, 0x2e, 0x74, 0x78, 0x74])]), "x\n");
+    const { data, code } = await runCli(["files", "--root", root, "--full", "--fields", "path"]);
+    assert.equal(code, 0);
+    assert.ok(data.files.includes("visible.txt"));
+    assert.ok(data.files.some((item) => item.bytes === "/y50eHQ="));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("full metrics rejects bounded-only fields", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "a.txt", "x\n");
+    for (const field of ["files_seen", "bytes_seen", "lines_seen"]) {
+      const { data, code } = await runCli(["metrics", "--root", root, "--full", "--fields", field]);
+      assert.equal(code, 2, field);
+      assert.equal(data.error, "invalid_command", field);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
