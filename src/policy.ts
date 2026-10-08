@@ -132,8 +132,10 @@ function decodeBasicString(value: string): string {
     if (escape in escapes) output += escapes[escape];
     else if (escape === "u" || escape === "U") {
       const width = escape === "u" ? 4 : 8;
-      const code = Number.parseInt(value.slice(i + 1, i + 1 + width), 16);
-      if (!Number.isInteger(code) || code > 0x10ffff) throw invalidPolicy();
+      const digits = value.slice(i + 1, i + 1 + width);
+      if (digits.length !== width || !/^[0-9a-fA-F]+$/.test(digits)) throw invalidPolicy();
+      const code = Number.parseInt(digits, 16);
+      if (!Number.isInteger(code) || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) throw invalidPolicy();
       output += String.fromCodePoint(code);
       i += width;
     } else if (escape === "\n") {
@@ -166,6 +168,32 @@ function parseTomlValue(raw: string): string | number | string[] {
   throw invalidPolicy();
 }
 
+function completeTomlArray(raw: string): boolean {
+  if (!raw.startsWith("[")) return true;
+  let depth = 0;
+  let quote: '"' | "'" | '"""' | "'''" | undefined;
+  let escaped = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if (quote && (quote === '"""' || quote === "'''") && raw.startsWith(quote, i)) {
+      i += 2;
+      quote = undefined;
+    } else if (quote === '"' && escaped) escaped = false;
+    else if ((quote === '"' || quote === '"""') && char === "\\") escaped = true;
+    else if (quote && char === quote) quote = undefined;
+    else if (!quote && (raw.startsWith('"""', i) || raw.startsWith("'''", i))) {
+      quote = raw.slice(i, i + 3) as '"""' | "'''";
+      i += 2;
+    } else if (!quote && (char === '"' || char === "'")) quote = char;
+    else if (!quote && char === "[") depth += 1;
+    else if (!quote && char === "]") {
+      depth -= 1;
+      if (depth === 0) return true;
+    }
+  }
+  return false;
+}
+
 /** Load explicitly named, trusted TOML policy data; never auto-load config. */
 export function loadPolicy(rawPath: string): PolicyConfig {
   try {
@@ -194,7 +222,7 @@ export function loadPolicy(rawPath: string): PolicyConfig {
       if (!match || (section && section !== "policy")) throw invalidPolicy();
       const key = match[1];
       let rawValue = match[2].trim();
-      while (rawValue.startsWith("[") && !rawValue.endsWith("]")) {
+      while (rawValue.startsWith("[") && !completeTomlArray(rawValue)) {
         index += 1;
         if (index >= lines.length) throw invalidPolicy();
         const continuation = stripTomlComment(lines[index], multilineQuote);
