@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { RgError, type RgBackend } from "./backend.js";
 import { toRootRelative, type ResolvedRoot } from "./policy.js";
+import { isValidUtf8 } from "./argv.js";
 
 /** A fidelity-preserving value: a UTF-8 string or lossless padded base64. */
 export type Value = string | { bytes: string };
@@ -91,11 +92,13 @@ export interface ScanBounds {
 async function scanPaths(
   backend: RgBackend,
   scan: ScanBounds,
-): Promise<{ paths: Buffer[]; complete: boolean }> {
-  const paths: Buffer[] = [];
+): Promise<{ paths: string[] | undefined; complete: boolean }> {
+  const paths: string[] = [];
+  let hasUnsafePath = false;
+  let seenFiles = 0;
   let bytes = 0;
   for await (const raw of backend.files()) {
-    if (scan.maxFiles !== undefined && paths.length >= scan.maxFiles) {
+    if (scan.maxFiles !== undefined && seenFiles >= scan.maxFiles) {
       return { paths, complete: false };
     }
     const size = readFileSync(raw).length;
@@ -103,9 +106,11 @@ async function scanPaths(
       return { paths, complete: false };
     }
     bytes += size;
-    paths.push(raw);
+    seenFiles += 1;
+    if (isValidUtf8(raw)) paths.push(raw.toString("utf8"));
+    else hasUnsafePath = true;
   }
-  return { paths, complete: true };
+  return { paths: hasUnsafePath ? undefined : paths, complete: true };
 }
 
 function envelope(
@@ -181,7 +186,7 @@ export async function matches(
   let total = 0;
   const selected = await scanPaths(backend, scan);
   const scanComplete = selected.complete;
-  if (selected.paths.length === 0) return envelope(command, "matches", values, total, limit, scanComplete);
+  if (selected.paths !== undefined && selected.paths.length === 0) return envelope(command, "matches", values, total, limit, scanComplete);
   const previous: Array<[number, Value]> = [];
   let following: MatchRecord[] = [];
   const emittedContext = new Set<string>();
@@ -269,7 +274,7 @@ export async function count(
   let total = 0;
   const selected = await scanPaths(backend, scan);
   const scanComplete = selected.complete;
-  if (selected.paths.length === 0) {
+  if (selected.paths !== undefined && selected.paths.length === 0) {
     return {
       status: "ok",
       command: "count",
