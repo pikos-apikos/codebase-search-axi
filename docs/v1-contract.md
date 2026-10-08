@@ -5,10 +5,23 @@ contract document, not a second search implementation.
 
 ## Scope and baseline
 
-The product is one small Python package with a required `rg` backend. The
-wrapper preserves ripgrep matching and ignore behavior, normalizes its events,
-and emits agent-facing output. There is no grep fallback, index, graph,
-embedding engine, or server in v1.
+The product is one small TypeScript/Node package with `axi-sdk-js` as a
+runtime dependency, invoking `rg` directly. No Python subprocess bridge is
+retained. The wrapper preserves ripgrep matching and ignore behavior,
+normalizes its events, and emits agent-facing output. There is no grep
+fallback, index, graph, embedding engine, or server in v1.
+
+The SDK owns dispatch, TOON serialization, structured error plumbing, the
+version fast path, and opt-in agent integrations. This package owns search
+semantics, file policy, byte fidelity, result processing, bounds, completeness,
+and command-specific validation. The locked SDK version's extension points
+are inspected before glue is added; `--json`, `--fields`, display/scan
+bounds, and per-command validation are tool features and are never assumed
+to be automatic SDK behavior. Any small adapter needed for SDK integration is
+documented here rather than forking or cloning the SDK. Search commands remain
+local and read-only: no SDK-provided setup or update side effects may occur
+during a search, and SDK-provided maintenance commands, when exposed, are
+described separately from the search commands.
 
 The tested baseline is commit
 `6f2d53d8aa22cf05380a41bcca93be238c50c3df` (ripgrep 15.2.0 in the test
@@ -39,7 +52,9 @@ changes made by this contract ticket.
 All commands accept `--root PATH`, the common bound flags below, `--policy
 PATH`, and `--format toon|json`. `--root` defaults to the current directory.
 The default output is compact TOON; `--format json` is stable machine-readable
-JSON with the same logical fields. All commands are non-interactive.
+JSON with the same logical fields. `--json` is an explicit, stable interface
+equivalent to `--format json` on every command; it is owned by this tool, not
+assumed to be an SDK feature. All commands are non-interactive.
 
 ### `files`
 
@@ -55,7 +70,7 @@ Uses ripgrep's regex mode by default and returns one normalized record per
 ripgrep match event, in backend order. A record contains `path`, `line`,
 `column`, and the matching line as `text`; when useful for fidelity it also
 contains ripgrep submatch offsets. `column` is one-based. Matching is not
-reimplemented in Python.
+reimplemented in the wrapper.
 
 The following flags map directly to ripgrep semantics:
 
@@ -79,6 +94,12 @@ Has the same matching flags and result records as `search`, plus
 `--before N` and `--after N` (default `2`). `before` and `after` are arrays of
 complete surrounding lines. They never become independent matches and are
 not included in match counts. Context at a file boundary is an empty array.
+When the before/after windows of adjacent match records in the same file
+overlap, the output deduplicates the shared physical lines: a context line
+already emitted for an earlier record in the same file is not repeated in a
+later record's window, and file order is preserved. Deduplication is a
+presentation rule only; it does not change match records, counts, or
+positions.
 
 ### `count PATTERN`
 
@@ -249,21 +270,25 @@ No partial success is emitted after a scan error.
 
 ## Package seams
 
-Keep the implementation in one Python package with four small boundaries:
+Keep the implementation in one TypeScript/Node package with `axi-sdk-js` as
+a runtime dependency and four small boundaries. No Python process is in the
+shipped execution path, and there is no shell-based `rg` invocation:
 
 - `policy`: canonicalize root and policy paths, load trusted explicit TOML,
   apply mandatory denies and optional exclusions, and return an immutable
   effective policy. It never invokes `rg`.
-- `backend`: the only subprocess boundary. `RgBackend` checks capabilities,
-  translates the approved flag model to native ripgrep arguments, streams
+- `backend`: the only subprocess boundary, invoking `rg` directly through Node
+  subprocess APIs. It checks capabilities, translates the approved flag model
+  to native ripgrep arguments, streams
   events, and translates dependency failures. It never chooses policy or
   formats output. There is no second backend.
 - `results`: normalize events into files/matches/context/count/metrics,
   enforce display and scan limits, calculate completeness, and preserve
   aggregate-vs-returned distinctions. It never reparses patterns.
-- `cli`: parse and validate command flags, resolve dispatch, select TOON/JSON,
-  and map errors/exit codes. It does not scan files or construct raw `rg`
-  arguments directly.
+- `cli`: parse and validate command flags, resolve dispatch through the SDK,
+  select TOON/JSON (including the explicit `--json` interface), and map
+  errors/exit codes through the SDK's structured error plumbing. It does not
+  scan files or construct raw `rg` arguments directly.
 
 ## Verification and downstream mapping
 
@@ -274,13 +299,13 @@ exercise the public CLI, not private helpers.
 | --- | --- | --- |
 | V1 | Existing baseline suite, required `rg`, no fallback, structured errors | #3, #6 |
 | V2 | Regex/literal, case modes, type/glob, multiline, optional PCRE2 match `rg` | #3 |
-| V3 | Files/search/context/count schemas, ordering, byte offsets, context boundaries; native multiline count versus per-line count | #5 |
+| V3 | Files/search/context/count schemas, ordering, byte offsets, context boundaries, and deduplicated overlapping context for adjacent records in one file; native multiline count versus per-line count | #5 |
 | V4 | Normal ignore behavior versus `--no-ignore`/`--hidden`; binary behavior | #3, #5 |
 | V5 | Mandatory denied paths remain denied under `--full`, globs, and ignore flags | #4 |
 | V6 | Explicit policy loading, precedence, root changes, canonical paths, symlinks | #4 |
 | V7 | Result/text/output/scan bounds in decoded versus serialized bytes, `--full`, `complete`, and non-total partial metrics/counts | #5 |
 | V8 | Empty result, malformed pattern/policy/root, missing capability, and exit codes | #6 |
-| V9 | Default TOON, stable JSON, minimal fields, truncation metadata, actionable help | #6 |
+| V9 | Default TOON, stable JSON via `--format json` and the explicit `--json` interface, minimal fields, truncation metadata, actionable help | #6 |
 | V10 | UTF-8 strings and lossless base64 path/text/context values agree with rg bytes; multibyte and non-UTF8 byte positions survive truncation | #3, #5, #6 |
 | V11 | Content-first no-argument workspace orientation, executable identity and description, finite work without an undisclosed full scan | [#6](https://github.com/pikos-apikos/codebase-search-axi/issues/6) |
 | V12 | Per-command help and bare fast `-v`/`-V`/`--version` work without rg or a scan | [#6](https://github.com/pikos-apikos/codebase-search-axi/issues/6) |
