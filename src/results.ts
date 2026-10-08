@@ -197,6 +197,48 @@ export async function matches(
   return envelope(command, "matches", values, total, limit);
 }
 
+export async function count(
+  backend: RgBackend,
+  root: ResolvedRoot,
+  pattern: Buffer,
+  limit: number | null,
+  countMatches = false,
+): Promise<Record<string, unknown>> {
+  const values: Array<{ path: Value; count: number }> = [];
+  const byPath = new Map<string, { path: Value; count: number }>();
+  let total = 0;
+  for await (const event of backend.events(pattern, 0, 0)) {
+    if (event.type !== "match") continue;
+    const data = event.data as Record<string, unknown>;
+    const path = eventPath(data, root);
+    const key = JSON.stringify(path);
+    let item = byPath.get(key);
+    if (!item) {
+      item = { path, count: 0 };
+      byPath.set(key, item);
+      if (limit === null || values.length < limit) values.push(item);
+    }
+    const submatches = (data["submatches"] as unknown[] | undefined) ?? [];
+    const increment = countMatches ? Math.max(1, submatches.length) : 1;
+    item.count += increment;
+    total += increment;
+  }
+  return {
+    status: "ok",
+    command: "count",
+    counts: values,
+    count: values.length,
+    returned: values.length,
+    total,
+    matched_files: byPath.size,
+    bounded: limit !== null,
+    complete: { scan: true, display: values.length === byPath.size },
+    ...(values.length === byPath.size
+      ? {}
+      : { help: "Use --full to return all results within the existing exclusions." }),
+  };
+}
+
 export async function metrics(
   backend: RgBackend,
   root: ResolvedRoot,

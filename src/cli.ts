@@ -14,8 +14,8 @@ import {
   type AxiCliCommand,
   type AxiCliOptions,
 } from "axi-sdk-js";
-import { RgBackend, reap, RgError } from "./backend.js";
-import { files, matches, metrics } from "./results.js";
+import { RgBackend, reap, RgError, type RgOptions } from "./backend.js";
+import { count, files, matches, metrics } from "./results.js";
 import { resolveRoot, type ResolvedRoot } from "./policy.js";
 import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
@@ -23,7 +23,7 @@ import { VERSION } from "./version.js";
 const DEFAULT_LIMIT = 50;
 
 interface ParsedCommand {
-  command: "files" | "search" | "context" | "metrics";
+  command: "files" | "search" | "context" | "metrics" | "count";
   patternBytes?: Buffer;
   root: ResolvedRoot;
   limit: number | null;
@@ -31,6 +31,8 @@ interface ParsedCommand {
   json: boolean;
   before: number;
   after: number;
+  rgOptions: RgOptions;
+  countMatches: boolean;
 }
 
 let outputJson = false;
@@ -48,7 +50,10 @@ function hasJsonSelector(args: string[]): boolean {
       (arg === "--root" ||
         arg === "--max-results" ||
         arg === "--before" ||
-        arg === "--after")
+        arg === "--after" ||
+        arg === "--type" ||
+        arg === "--type-not" ||
+        arg === "--glob")
     ) {
       i += 1;
     }
@@ -78,7 +83,7 @@ function splitArgs(args: string[]): { strings: string[]; bytes: Buffer[] } {
   };
 }
 
-type CommandName = "files" | "search" | "context" | "metrics";
+type CommandName = "files" | "search" | "context" | "metrics" | "count";
 
 function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   const { strings, bytes } = splitArgs(args);
@@ -89,6 +94,8 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   let json = false;
   let before = 2;
   let after = 2;
+  const rgOptions: RgOptions = { types: [], typesNot: [], globs: [] };
+  let countMatches = false;
   let pattern: Buffer | undefined;
   let afterSeparator = false;
 
@@ -132,6 +139,40 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     } else if (arg === "--json") {
       json = true;
       i += 1;
+    } else if (arg === "--fixed-strings") {
+      rgOptions.fixedStrings = true;
+      i += 1;
+    } else if (arg === "--case-sensitive" || arg === "--ignore-case" || arg === "--smart-case") {
+      const mode = arg === "--case-sensitive" ? "sensitive" : arg === "--ignore-case" ? "ignore" : "smart";
+      if (rgOptions.caseMode && rgOptions.caseMode !== mode) {
+        throw usageError("conflicting case modes");
+      }
+      rgOptions.caseMode = mode;
+      i += 1;
+    } else if (arg === "--type" || arg === "--type-not" || arg === "--glob") {
+      if (i + 1 >= strings.length) throw usageError(`${arg} requires a value`);
+      const target = arg === "--type" ? rgOptions.types : arg === "--type-not" ? rgOptions.typesNot : rgOptions.globs;
+      target?.push(strings[i + 1]);
+      i += 2;
+    } else if (arg === "--no-ignore") {
+      rgOptions.noIgnore = true;
+      i += 1;
+    } else if (arg === "--hidden") {
+      rgOptions.hidden = true;
+      i += 1;
+    } else if (arg === "--multiline") {
+      rgOptions.multiline = true;
+      i += 1;
+    } else if (arg === "--multiline-dotall") {
+      rgOptions.multiline = true;
+      rgOptions.multilineDotall = true;
+      i += 1;
+    } else if (arg === "--pcre2") {
+      rgOptions.pcre2 = true;
+      i += 1;
+    } else if (arg === "--count-matches" && command === "count") {
+      countMatches = true;
+      i += 1;
     } else if (arg === "--all") {
       throw usageError("--all was removed; use --full instead");
     } else if (arg === "--before" && command === "context") {
@@ -153,7 +194,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     }
   }
 
-  if ((command === "search" || command === "context") && pattern === undefined) {
+  if ((command === "search" || command === "context" || command === "count") && pattern === undefined) {
     throw usageError("the following arguments are required: pattern");
   }
   if (full && maxResultsExplicit) {
@@ -174,6 +215,8 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     limit,
     full,
     json,
+    rgOptions,
+    countMatches,
     before: command === "context" ? before : 0,
     after: command === "context" ? after : 0,
   };
@@ -220,22 +263,26 @@ const HELP = [
   "  files     discover files",
   "  search    search file contents",
   "  context   search with surrounding lines",
+  "  count     count matching lines or occurrences",
   "  metrics   count bounded files, bytes, and lines",
   "",
   "Common flags: --root PATH, --max-results N, --full, --json",
+  "Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2",
   "context flags: --before N, --after N",
+  "count flags: --count-matches",
 ].join("\n");
 
 const COMMAND_SUMMARIES: Record<string, string> = {
   files: "discover files",
   search: "search file contents",
   context: "search with surrounding lines",
+  count: "count matching lines or occurrences",
   metrics: "count bounded files, bytes, and lines",
 };
 
 function commandHelp(command: string): string {
   const lines: string[] = [`codebase-search ${command} — ${COMMAND_SUMMARIES[command] ?? ""}`];
-  if (command === "search" || command === "context") {
+  if (command === "search" || command === "context" || command === "count") {
     lines.push(`Usage: codebase-search ${command} PATTERN [flags] [-- PATTERN]`);
   } else {
     lines.push(`Usage: codebase-search ${command} [flags]`);
@@ -244,9 +291,13 @@ function commandHelp(command: string): string {
     "",
     "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json",
   );
+  if (command === "search" || command === "context" || command === "count") {
+    lines.push("Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2");
+  }
   if (command === "context") {
     lines.push("Context flags: --before N (default: 2), --after N (default: 2)");
   }
+  if (command === "count") lines.push("Count flags: --count-matches");
   return lines.join("\n");
 }
 
@@ -267,6 +318,14 @@ function execute(
         parsed.limit,
         parsed.before,
         parsed.after,
+      );
+    case "count":
+      return count(
+        backend,
+        parsed.root,
+        parsed.patternBytes ?? Buffer.alloc(0),
+        parsed.limit,
+        parsed.countMatches,
       );
     case "metrics":
       return metrics(backend, parsed.root, parsed.limit);
@@ -304,7 +363,7 @@ export async function main(): Promise<void> {
         );
       }
       const parsed = parseCommand(command, args);
-      const temp = new RgBackend(parsed.root, parsed.full);
+      const temp = new RgBackend(parsed.root, { ...parsed.rgOptions, full: parsed.full });
       backend = temp;
       try {
         const record = await execute(parsed, temp);
@@ -327,6 +386,7 @@ export async function main(): Promise<void> {
     files: buildCommand("files"),
     search: buildCommand("search"),
     context: buildCommand("context"),
+    count: buildCommand("count"),
     metrics: buildCommand("metrics"),
   };
 
