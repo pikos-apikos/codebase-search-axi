@@ -49,7 +49,7 @@ Deliberate divergences from `gh-axi`, kept because they fit a small local-search
 - Bare invocation returns compact workspace orientation without scanning the repository (principle 8).
 - `--fields FIELD,...` projects result records consistently in TOON and JSON while retaining required envelope metadata.
 - Output records carry no next-step suggestions (principle 9).
-- No published npm package or release pipeline; use the repository directly via `bin/codebase-search` (after `npm install && npm run build`).
+- No registry publication or release pipeline; local npm tarballs include the `codebase-search` executable and can be installed with `npm install ./codebase-search-axi-0.1.0.tgz`.
 
 ## Test
 

@@ -110,6 +110,15 @@ test("setup hooks is explicit, idempotent, and preserves unrelated home files", 
   }
 });
 
+test("setup hooks rejects project-scoped configuration", async () => {
+  for (const flag of ["--scope", "--project-dir"]) {
+    const { data, code } = await runCli(["setup", "hooks", "status", flag, "/tmp/project"]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+  }
+});
+
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
