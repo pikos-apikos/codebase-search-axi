@@ -590,3 +590,29 @@ test("metrics fields preserve aliases across bounded and full JSON/TOON output",
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("files path projection preserves scalar and byte-encoded paths", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "visible.txt", "x\n");
+    const { data, code } = await runCli(["files", "--root", root, "--full", "--fields", "path"]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.files, ["visible.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("full metrics rejects bounded-only fields", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "a.txt", "x\n");
+    for (const field of ["files_seen", "bytes_seen", "lines_seen"]) {
+      const { data, code } = await runCli(["metrics", "--root", root, "--full", "--fields", field]);
+      assert.equal(code, 2, field);
+      assert.equal(data.error, "invalid_command", field);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

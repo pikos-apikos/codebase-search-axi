@@ -16,7 +16,7 @@ Implemented principles:
   completeness metadata;
 - metrics accepts `files`, `bytes`, and `lines` in every mode, projecting them
   to truthful `*_seen` keys for bounded observations and exact keys for full
-  scans;
+  scans; explicit `*_seen` fields are bounded-only;
 - default bounds and explicit `--full` remain truthful under mandatory policy;
 - unknown commands, flags, field names, and invalid bounds fail before `rg`;
 - empty results are successful, operational failures remain structured, and

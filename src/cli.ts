@@ -216,6 +216,9 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   }
   for (const field of fields) {
     if (!FIELD_NAMES[command].has(field)) throw usageError(`unknown field for ${command}: ${field}`);
+    if (command === "metrics" && full && field.endsWith("_seen")) {
+      throw usageError(`${field} is only available for bounded metrics`);
+    }
   }
 
   const root = resolveRoot(rootRaw);
@@ -279,7 +282,7 @@ const HELP = [
   "  metrics   count bounded files, bytes, and lines",
   "",
   "Common flags: --root PATH, --max-results N, --full, --json, --fields FIELD[,FIELD...]",
-  "Metrics fields: files, bytes, lines (or bounded observations files_seen, bytes_seen, lines_seen)",
+  "Metrics fields: files, bytes, lines (bounded mode also accepts files_seen, bytes_seen, lines_seen)",
   "Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2",
   "context flags: --before N, --after N",
   "count flags: --count-matches",
@@ -305,7 +308,7 @@ function commandHelp(command: string): string {
     "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json, --fields FIELD[,FIELD...]",
   );
   if (command === "metrics") {
-    lines.push("Metrics fields: files, bytes, lines (or bounded observations files_seen, bytes_seen, lines_seen)");
+    lines.push("Metrics fields: files, bytes, lines (bounded mode also accepts files_seen, bytes_seen, lines_seen)");
   }
   if (command === "search" || command === "context" || command === "count") {
     lines.push("Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2");
@@ -332,6 +335,10 @@ function projectFields(command: CommandName, record: Record<string, unknown>, fi
   }
   const projected = { ...record };
   const collection = command === "files" ? "files" : command === "count" ? "counts" : command === "search" || command === "context" ? "matches" : undefined;
+  if (collection === "files" && Array.isArray(record[collection])) {
+    projected[collection] = (record[collection] as unknown[]).map((item) => ({ path: item }));
+    return projected;
+  }
   if (collection && Array.isArray(record[collection])) {
     projected[collection] = (record[collection] as Array<Record<string, unknown>>).map((item) =>
       Object.fromEntries(fields.filter((field) => field in item).map((field) => [field, item[field]])),
