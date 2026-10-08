@@ -28,9 +28,8 @@ bin/codebase-search metrics --root .
 
 Every successful invocation prints one compact JSON record to stdout and exits zero.
 Empty discovery and search results are successful records with an empty array and `count: 0`.
-Output is bounded by default at 50 results; use `--max-results N` for another bound.
-See [README: AXI conformance](../../../README.md#axi-conformance) for the command-specific limits of `--all`.
-Default exclusions cover `.git`, dependency and vendor directories, common build outputs, virtual environments, `.env*`, private-key names, and common certificate or key extensions.
-Use `--all` only when searching those paths is intentional because it opts into generated and potentially sensitive content.
+See [README: Usage](../../../README.md#usage) for result limits, `--all`,
+completeness metadata, lossless byte values, positions, and error behavior.
+The exclusion list is maintained in `SAFE_GLOBS` in
+[`bin/codebase-search`](../../../bin/codebase-search).
 Invalid commands, invalid roots, invalid requests, unavailable `rg`, and search failures print a JSON error record and exit nonzero.
-Search records preserve relative filenames, line numbers, columns, and matching line text; context records also include `before` and `after` arrays.

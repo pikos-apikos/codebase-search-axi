@@ -49,7 +49,9 @@ empty=$("$ROOT/bin/codebase-search" search absent --root "$TMP_ROOT")
 EMPTY_JSON=$empty python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["EMPTY_JSON"])
-assert data == {"status": "ok", "command": "search", "matches": [], "count": 0, "bounded": True}
+assert data["status"] == "ok"
+assert data["matches"] == [] and data["count"] == data["returned"] == data["total"] == 0
+assert data["complete"] == {"scan": True, "display": True}
 PY
 
 if "$ROOT/bin/codebase-search" search needle --root "$TMP_ROOT/missing" >/dev/null 2>&1; then
@@ -72,10 +74,10 @@ import json, os
 data = json.loads(os.environ["SAFE_JSON"])
 paths = {item["path"] for item in data["matches"]}
 assert "src/app.txt" in paths
-assert "node_modules/dependency.txt" in paths
-assert "build/generated.txt" in paths
-assert ".env.local" in paths
-assert "signing.pem" in paths
+assert "node_modules/dependency.txt" not in paths
+assert "build/generated.txt" not in paths
+assert ".env.local" not in paths
+assert "signing.pem" not in paths
 PY
 
 context=$("$ROOT/bin/codebase-search" context needle --root "$TMP_ROOT" --before 1 --after 1)
@@ -84,7 +86,7 @@ import json, os
 data = json.loads(os.environ["CONTEXT_JSON"])
 assert data["status"] == "ok"
 assert data["matches"][0]["before"] == []
-assert data["matches"][0]["after"] == ["needle two"]
+assert data["matches"][0]["after"] == ["needle two\n"]
 PY
 
 files=$("$ROOT/bin/codebase-search" files --root "$TMP_ROOT")
@@ -101,9 +103,11 @@ METRICS_JSON=$metrics python3 - <<'PY'
 import json, os
 data = json.loads(os.environ["METRICS_JSON"])
 assert data["status"] == "ok"
-assert data["files"] >= 1
-assert data["bytes"] > 0
-assert data["lines"] >= 1
+assert data["files_seen"] >= 1
+assert data["bytes_seen"] > 0
+assert data["lines_seen"] >= 1
+assert data["complete"]["scan"] is False
 PY
 
 echo "ok - codebase-search public CLI"
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s "$ROOT/tests" -p 'test_*.py' -v
