@@ -336,7 +336,7 @@ function projectFields(command: CommandName, record: Record<string, unknown>, fi
   const projected = { ...record };
   const collection = command === "files" ? "files" : command === "count" ? "counts" : command === "search" || command === "context" ? "matches" : undefined;
   if (collection === "files" && Array.isArray(record[collection])) {
-    projected[collection] = (record[collection] as unknown[]).map((item) => ({ path: item }));
+    projected[collection] = [...(record[collection] as unknown[])];
     return projected;
   }
   if (collection && Array.isArray(record[collection])) {

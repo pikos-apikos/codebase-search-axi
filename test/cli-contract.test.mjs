@@ -595,9 +595,11 @@ test("files path projection preserves scalar and byte-encoded paths", async () =
   const root = makeRoot();
   try {
     write(root, "visible.txt", "x\n");
+    writeFileSync(Buffer.concat([Buffer.from(`${root}/`), Buffer.from([0xff, 0x2e, 0x74, 0x78, 0x74])]), "x\n");
     const { data, code } = await runCli(["files", "--root", root, "--full", "--fields", "path"]);
     assert.equal(code, 0);
-    assert.deepEqual(data.files, ["visible.txt"]);
+    assert.ok(data.files.includes("visible.txt"));
+    assert.ok(data.files.some((item) => item.bytes === "/i50eHQ="));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
