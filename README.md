@@ -39,7 +39,7 @@ npm run build
 
 ## AXI conformance
 
-This project follows the reference-AXI pattern set by tools such as [gh-axi](https://github.com/kunchenguid/gh-axi): a thin, non-interactive wrapper over an existing CLI (`rg`) that gives agents bounded, machine-readable results, structured error records with nonzero exit codes, a default limit with an explicit unbounded escape hatch (currently `--all`, unbounded for `files` and `metrics` while `search` and `context` remain capped; the [v1 contract](docs/v1-contract.md) removes `--all` and uses `--full` instead), a skill under `.agents/skills/`, and tests that exercise the public CLI contract.
+This project follows the reference-AXI pattern set by tools such as [gh-axi](https://github.com/kunchenguid/gh-axi): a thin, non-interactive wrapper over an existing CLI (`rg`) that gives agents bounded, machine-readable results, structured error records with nonzero exit codes, a default limit with an explicit `--full` escape hatch, an explicit `--json` interface, a skill under `.agents/skills/`, and tests that exercise the public CLI contract.
 
 Deliberate divergences from `gh-axi`, kept because they fit a small local-search tool rather than a networked service adapter:
 

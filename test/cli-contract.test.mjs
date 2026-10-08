@@ -156,7 +156,7 @@ test("missing root is a structured invalid_root error", async () => {
   }
 });
 
-test("--all still denies generated and sensitive paths", async () => {
+test("--full still denies generated and sensitive paths", async () => {
   const root = makeRoot();
   try {
     write(root, "src/app.txt", "needle one\nneedle two\nother\n");
@@ -164,7 +164,7 @@ test("--all still denies generated and sensitive paths", async () => {
     write(root, "build/generated.txt", "needle build\n");
     write(root, ".env.local", "password=needle\n");
     write(root, "signing.pem", "-----BEGIN PRIVATE KEY-----\nneedle\n");
-    const { data, code } = await runCli(["search", "needle", "--root", root, "--all"]);
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--full"]);
     assert.equal(code, 0);
     const paths = new Set(data.matches.map((m) => m.path));
     assert.ok(paths.has("src/app.txt"));
@@ -172,6 +172,32 @@ test("--all still denies generated and sensitive paths", async () => {
     assert.ok(!paths.has("build/generated.txt"));
     assert.ok(!paths.has(".env.local"));
     assert.ok(!paths.has("signing.pem"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("--json selects the stable JSON interface", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "needle\n");
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--json"]);
+    assert.equal(code, 0);
+    assert.equal(data.status, "ok");
+    assert.equal(data.matches[0].path, "src/app.txt");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("--all is rejected with a migration hint", async () => {
+  const root = makeRoot();
+  try {
+    const { data, code } = await runCli(["files", "--root", root, "--all"]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+    assert.match(data.message, /--all.*--full/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

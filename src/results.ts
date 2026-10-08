@@ -90,7 +90,7 @@ function envelope(
     complete: { scan: true, display },
   };
   if (!display) {
-    record.help = "Use --all to return all results within the existing exclusions.";
+    record.help = "Use --full to return all results within the existing exclusions.";
   }
   return record;
 }
@@ -227,7 +227,7 @@ export async function metrics(
       lines_seen: lineCount,
       bounded: true,
       complete: { scan: false, display: true },
-      help: "Use --all to scan all files within the existing exclusions.",
+      help: "Use --full to scan all files within the existing exclusions.",
     };
   }
   return {

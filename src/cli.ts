@@ -4,11 +4,9 @@
  * structured error plumbing. Does not scan files or construct raw rg
  * arguments directly.
  *
- * Output in this slice is the existing compact JSON envelope: the tool owns
- * result schemas and JSON serialization (the SDK renders strings verbatim).
- * TOON default output and the explicit `--json` selection are downstream
- * presentation work (Issue #6); the contract obligations are preserved in
- * docs/rg-adapter.md.
+ * Output is the stable compact JSON envelope selected by the explicit
+ * `--json` flag; the tool owns result schemas and JSON serialization (the SDK
+ * renders strings verbatim).
  */
 import {
   AxiError,
@@ -62,7 +60,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   let rootRaw = Buffer.from(".", "utf-8");
   let maxResults: number | null = null;
   let maxResultsExplicit = false;
-  let all = false;
+  let full = false;
   let before = 2;
   let after = 2;
   let pattern: Buffer | undefined;
@@ -102,9 +100,13 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
       maxResultsExplicit = true;
       maxResults = parseBound(strings[i + 1], "--max-results");
       i += 2;
-    } else if (arg === "--all") {
-      all = true;
+    } else if (arg === "--full") {
+      full = true;
       i += 1;
+    } else if (arg === "--json") {
+      i += 1;
+    } else if (arg === "--all") {
+      throw usageError("--all was removed; use --full instead");
     } else if (arg === "--before" && command === "context") {
       if (i + 1 >= strings.length) throw usageError("--before requires a value");
       before = parseBound(strings[i + 1], "--before");
@@ -127,8 +129,8 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   if ((command === "search" || command === "context") && pattern === undefined) {
     throw usageError("the following arguments are required: pattern");
   }
-  if (all && maxResultsExplicit) {
-    throw usageError("--all conflicts with an explicit --max-results bound");
+  if (full && maxResultsExplicit) {
+    throw usageError("--full conflicts with an explicit --max-results bound");
   }
   if (maxResults !== null && maxResults < 1) {
     throw requestError("--max-results must be positive");
@@ -138,7 +140,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   }
 
   const root = resolveRoot(rootRaw);
-  const limit = all ? null : (maxResults ?? DEFAULT_LIMIT);
+  const limit = full ? null : (maxResults ?? DEFAULT_LIMIT);
   const parsed: ParsedCommand = {
     command,
     root,
@@ -188,7 +190,7 @@ const HELP = [
   "  context   search with surrounding lines",
   "  metrics   count bounded files, bytes, and lines",
   "",
-  "Common flags: --root PATH, --max-results N, --all",
+  "Common flags: --root PATH, --max-results N, --full, --json",
   "context flags: --before N, --after N",
 ].join("\n");
 
@@ -208,7 +210,7 @@ function commandHelp(command: string): string {
   }
   lines.push(
     "",
-    "Flags: --root PATH (default: .), --max-results N (default: 50), --all",
+    "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json",
   );
   if (command === "context") {
     lines.push("Context flags: --before N (default: 2), --after N (default: 2)");

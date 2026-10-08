@@ -104,7 +104,7 @@ test("test_dash_pattern_is_a_value", async (t) => {
     "search",
     "--root",
     root,
-    "--all",
+    "--full",
     "--",
     "-needle",
   ]);
@@ -174,7 +174,7 @@ test("test_non_utf8_paths_content_context_and_byte_offsets", async (t) => {
   ]);
   writeRaw(root, name, contents);
   const { data, code } = await runCli(
-    ["context", "needle", "--root", root, "--all", "--before", "1", "--after", "1"],
+    ["context", "needle", "--root", root, "--full", "--before", "1", "--after", "1"],
   );
   assert.equal(code, 0);
   const item = data.matches[0];
@@ -191,10 +191,10 @@ test("test_non_utf8_paths_content_context_and_byte_offsets", async (t) => {
   assert.deepEqual(item.before, [value([0x62, 0x65, 0x66, 0x6f, 0x72, 0x65, 0x20, 0xfe, 0x0a])]);
   assert.deepEqual(item.after, [value([0x61, 0x66, 0x74, 0x65, 0x72, 0x20, 0xfd, 0x0a])]);
 
-  const listing = await runCli(["files", "--root", root, "--all"]);
+  const listing = await runCli(["files", "--root", root, "--full"]);
   assert.equal(listing.code, 0);
   assert.ok(deepIncludes(listing.data.files, value(name)));
-  const metrics = await runCli(["metrics", "--root", root, "--all"]);
+  const metrics = await runCli(["metrics", "--root", root, "--full"]);
   assert.equal(metrics.code, 0);
   assert.equal(metrics.data.bytes, contents.length);
 });
@@ -208,7 +208,7 @@ test("test_non_utf8_submatch_bytes_are_lossless", async (t) => {
     "search",
     "--root",
     root,
-    "--all",
+    "--full",
     "--",
     "(?-u:\\xFF)",
   ]);
@@ -228,7 +228,7 @@ test("test_matching_lines_larger_than_read_chunk_preserve_text_and_offsets", asy
   for (const suffix of [Buffer.from(" tail ", "utf-8"), Buffer.from([0xff, 0x20, 0x74, 0x61, 0x69, 0x6c, 0x20])]) {
     const line = Buffer.concat([bigPrefix, Buffer.from("needle", "utf-8"), suffix, Buffer.from("needle\r\n", "latin1")]);
     writeRaw(root, Buffer.from("allowed.txt", "utf-8"), Buffer.concat([line, Buffer.from("needle\n", "latin1")]));
-    const { data, code } = await runCli(["search", "needle", "--root", root, "--all"]);
+  const { data, code } = await runCli(["search", "needle", "--root", root, "--full"]);
     assert.equal(code, 0);
     assert.deepEqual(data.complete, { scan: true, display: true });
     assert.equal(data.total, 2);
@@ -268,7 +268,7 @@ test("test_non_utf8_root_does_not_corrupt_relative_paths", async (t) => {
   // Drive the CLI from bash so the raw 0xFF root bytes reach argv (Node
   // transcodes non-UTF-8 argv, so a POSIX parent is required here).
   const script = `ROOT="$BASE/root-$(printf '\\xff')"
-"$BIN" search needle --root "$ROOT" --all`;
+"$BIN" search needle --root "$ROOT" --full`;
   const proc = spawnSync("bash", ["-c", script], {
     env: { ...process.env, BASE: base, BIN },
     encoding: "utf-8",
@@ -292,7 +292,7 @@ test("test_context_uses_rg_encoding_conversion", async (t) => {
     "needle",
     "--root",
     root,
-    "--all",
+    "--full",
     "--before",
     "1",
     "--after",
@@ -316,7 +316,7 @@ test("test_context_deduplicates_overlapping_windows", async (t) => {
     "needle",
     "--root",
     root,
-    "--all",
+    "--full",
     "--before",
     "2",
     "--after",
@@ -546,7 +546,7 @@ test("test_native_ignores_and_binary_detection_are_preserved", async (t) => {
   write(root, ".hidden.txt", "needle\n");
   write(root, "binary.txt", Buffer.from([0x00, 0x6e, 0x65, 0x65, 0x64, 0x6c, 0x65, 0x0a]));
   write(root, "allowed.txt", "needle\n");
-  const { data, code } = await runCli(["search", "needle", "--root", root, "--all"]);
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--full"]);
   assert.equal(code, 0);
   assert.deepEqual(data.matches.map((m) => m.path), ["allowed.txt"]);
 });
@@ -575,8 +575,8 @@ test("test_unbounded_adapter_keeps_sensitive_denies", async (t) => {
   for (const command of ["search", "files"]) {
     const args =
       command === "search"
-        ? [command, "needle", "--root", root, "--all"]
-        : [command, "--root", root, "--all"];
+        ? [command, "needle", "--root", root, "--full"]
+        : [command, "--root", root, "--full"];
     const { data, code } = await runCli(args);
     assert.equal(code, 0, command);
     const paths =
@@ -620,7 +620,7 @@ test("test_files_limit_reports_complete_scan", async (t) => {
 });
 
 // 21 --------------------------------------------------------------------------
-test("test_explicit_bound_conflicts_with_all", async (t) => {
+test("test_explicit_bound_conflicts_with_full", async (t) => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   write(root, "allowed.txt", "needle\n");
@@ -629,7 +629,7 @@ test("test_explicit_bound_conflicts_with_all", async (t) => {
     "needle",
     "--root",
     root,
-    "--all",
+    "--full",
     "--max-results",
     "1",
   ]);
