@@ -428,6 +428,34 @@ test("search supports multiline matching", async () => {
     assert.equal(code, 0);
     assert.equal(data.count, 1);
     assert.equal(data.matches[0].line, 1);
+    assert.equal(data.matches[0].end_line, 2);
+    assert.equal(data.matches[0].end_column, 7);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("context uses multiline match boundary for trailing lines", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "before\nfirst\nsecond\nafter\n");
+    const { data, code } = await runCli([
+      "context",
+      "first\\nsecond",
+      "--root",
+      root,
+      "--full",
+      "--multiline",
+      "--before",
+      "1",
+      "--after",
+      "1",
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.matches[0].before, ["before\n"]);
+    assert.deepEqual(data.matches[0].after, ["after\n"]);
+    assert.equal(data.matches[0].end_line, 3);
+    assert.equal(data.matches[0].end_column, 7);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -61,10 +61,22 @@ interface MatchRecord {
   path: Value;
   line: number;
   column: number;
+  end_line?: number;
+  end_column?: number;
   text: Value;
   submatches: Array<Record<string, unknown>>;
   before?: Value[];
   after?: Value[];
+}
+
+function spanEnd(line: number, text: Buffer, end: number): [number, number] {
+  const prefix = text.subarray(0, end);
+  let endLine = line;
+  for (const byte of prefix) {
+    if (byte === 0x0a) endLine += 1;
+  }
+  const newline = prefix.lastIndexOf(0x0a);
+  return [endLine, newline === -1 ? end + 1 : end - newline];
 }
 
 function contextKey(path: Value, line: number): string {
@@ -146,7 +158,7 @@ export async function matches(
     const data = event.data as Record<string, unknown>;
     const line = data["line_number"] as number;
     const text = encoded(rgBytes(data["lines"] as ByteValue));
-    following = following.filter((item) => line <= item.line + after);
+    following = following.filter((item) => line <= (item.end_line ?? item.line) + after);
     for (const item of following) {
       if (item.after && !emittedContext.has(contextKey(item.path, line))) {
         item.after.push(text);
@@ -164,6 +176,8 @@ export async function matches(
           ...match,
           match: encoded(rgBytes(match["match"] as ByteValue)),
         }));
+        const lineBytes = rgBytes(data["lines"] as ByteValue);
+        const [endLine, endColumn] = spanEnd(line, lineBytes, Number(submatches[0]["end"]));
         const item: MatchRecord = {
           path: eventPath(data, root),
           line,
@@ -171,6 +185,10 @@ export async function matches(
           text,
           submatches,
         };
+        if (endLine !== line) {
+          item.end_line = endLine;
+          item.end_column = endColumn;
+        }
         emittedContext.add(contextKey(item.path, line));
         if (command === "context") {
           item.before = previous
