@@ -22,7 +22,7 @@ import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import { RgBackend, reap, RgError, type RgOptions } from "./backend.js";
 import { count, files, matches, metrics } from "./results.js";
-import { resolveRoot, type ResolvedRoot } from "./policy.js";
+import { loadPolicy, resolveRoot, type PolicyConfig, type ResolvedRoot } from "./policy.js";
 import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
 
@@ -52,6 +52,11 @@ interface ParsedCommand {
   rgOptions: RgOptions;
   countMatches: boolean;
   fields: string[];
+  policy: PolicyConfig;
+  scanMaxFiles?: number;
+  scanMaxBytes?: number;
+  maxTextBytes?: number;
+  maxBytes?: number;
 }
 
 let outputJson = false;
@@ -71,6 +76,12 @@ function hasJsonSelector(args: string[]): boolean {
         arg === "--before" ||
         arg === "--after" ||
         arg === "--fields" ||
+        arg === "--policy" ||
+        arg === "--format" ||
+        arg === "--scan-max-files" ||
+        arg === "--scan-max-bytes" ||
+        arg === "--max-text-bytes" ||
+        arg === "--max-bytes" ||
         arg === "--type" ||
         arg === "--type-not" ||
         arg === "--glob")
@@ -117,6 +128,12 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   const rgOptions: RgOptions = { types: [], typesNot: [], globs: [] };
   let countMatches = false;
   let fields: string[] = [];
+  let policyPath: string | undefined;
+  let format: "toon" | "json" | undefined;
+  let scanMaxFiles: number | undefined;
+  let scanMaxBytes: number | undefined;
+  let maxTextBytes: number | undefined;
+  let maxBytes: number | undefined;
   let pattern: Buffer | undefined;
   let afterSeparator = false;
 
@@ -164,6 +181,25 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
       if (i + 1 >= strings.length) throw usageError("--fields requires a value");
       fields = strings[i + 1].split(",").map((field) => field.trim()).filter(Boolean);
       if (fields.length === 0) throw usageError("--fields requires at least one field");
+      i += 2;
+    } else if (arg === "--policy") {
+      if (i + 1 >= strings.length) throw usageError("--policy requires a value");
+      policyPath = strings[i + 1];
+      i += 2;
+    } else if (arg === "--format") {
+      if (i + 1 >= strings.length) throw usageError("--format requires a value");
+      const value = strings[i + 1];
+      if (value !== "toon" && value !== "json") throw usageError("--format must be toon or json");
+      format = value;
+      i += 2;
+    } else if (["--scan-max-files", "--scan-max-bytes", "--max-text-bytes", "--max-bytes"].includes(arg)) {
+      if (i + 1 >= strings.length) throw usageError(`${arg} requires a value`);
+      const value = parseBound(strings[i + 1], arg);
+      if (value < 1) throw requestError(`${arg} must be positive`);
+      if (arg === "--scan-max-files") scanMaxFiles = value;
+      else if (arg === "--scan-max-bytes") scanMaxBytes = value;
+      else if (arg === "--max-text-bytes") maxTextBytes = value;
+      else maxBytes = value;
       i += 2;
     } else if (arg === "--fixed-strings") {
       rgOptions.fixedStrings = true;
@@ -226,6 +262,9 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   if (full && maxResultsExplicit) {
     throw usageError("--full conflicts with an explicit --max-results bound");
   }
+  if (full && (scanMaxFiles !== undefined || scanMaxBytes !== undefined || maxTextBytes !== undefined || maxBytes !== undefined)) {
+    throw usageError("--full conflicts with explicit scan or display bounds");
+  }
   if (maxResults !== null && maxResults < 1) {
     throw requestError("--max-results must be positive");
   }
@@ -240,16 +279,24 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   }
 
   const root = resolveRoot(rootRaw);
-  const limit = full ? null : (maxResults ?? DEFAULT_LIMIT);
+  const policy = policyPath ? loadPolicy(policyPath) : { optionalGlobs: [] };
+  const effectiveMax = maxResults ?? policy.maxResults;
+  const limit = full ? null : (effectiveMax ?? DEFAULT_LIMIT);
+  if (policy.optionalGlobs.length > 0) rgOptions.globs?.push(...policy.optionalGlobs);
   const parsed: ParsedCommand = {
     command,
     root,
     limit,
     full,
-    json,
+    json: format === "json" || json,
     rgOptions,
     countMatches,
     fields,
+    policy,
+    scanMaxFiles: scanMaxFiles ?? policy.scanMaxFiles,
+    scanMaxBytes: scanMaxBytes ?? policy.scanMaxBytes,
+    maxTextBytes: maxTextBytes ?? policy.maxTextBytes,
+    maxBytes: maxBytes ?? policy.maxBytes,
     before: command === "context" ? before : 0,
     after: command === "context" ? after : 0,
   };
@@ -300,7 +347,7 @@ const HELP = [
   "  count     count matching lines or occurrences",
   "  metrics   count bounded files, bytes, and lines",
   "",
-  "Common flags: --root PATH, --max-results N, --full, --json, --fields FIELD[,FIELD...]",
+  "Common flags: --root PATH, --policy PATH, --max-results N, --scan-max-files N, --scan-max-bytes N, --max-text-bytes N, --max-bytes N, --full, --json, --format toon|json, --fields FIELD[,FIELD...]",
   "Metrics fields: files, bytes, lines (bounded mode also accepts files_seen, bytes_seen, lines_seen)",
   "Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2",
   "context flags: --before N, --after N",
@@ -329,7 +376,7 @@ function commandHelp(command: string): string {
   }
   lines.push(
     "",
-    "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json, --fields FIELD[,FIELD...]",
+    "Flags: --root PATH (default: .), --policy PATH, --max-results N (default: 50), --scan-max-files N, --scan-max-bytes N, --max-text-bytes N, --max-bytes N, --full, --json, --format toon|json, --fields FIELD[,FIELD...]",
   );
   if (command === "metrics") {
     lines.push("Metrics fields: files, bytes, lines (bounded mode also accepts files_seen, bytes_seen, lines_seen)");
@@ -397,6 +444,81 @@ const FIELD_NAMES: Record<CommandName, ReadonlySet<string>> = {
   metrics: new Set(["files", "bytes", "lines", "files_seen", "bytes_seen", "lines_seen"]),
 };
 
+function valueBytes(value: unknown): Buffer | undefined {
+  if (typeof value === "string") return Buffer.from(value, "utf8");
+  if (value && typeof value === "object" && typeof (value as { bytes?: unknown }).bytes === "string") {
+    return Buffer.from((value as { bytes: string }).bytes, "base64");
+  }
+  return undefined;
+}
+
+function encodeValue(bytes: Buffer): string | { bytes: string } {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return { bytes: bytes.toString("base64") };
+  }
+}
+
+function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | undefined): void {
+  if (maxTextBytes === undefined) return;
+  const collection = record.matches;
+  if (!Array.isArray(collection)) return;
+  for (const item of collection) {
+    if (!item || typeof item !== "object") continue;
+    const entry = item as Record<string, unknown>;
+    const fields: string[] = ["text"];
+    if (Array.isArray(entry.before)) fields.push("before");
+    if (Array.isArray(entry.after)) fields.push("after");
+    let used = 0;
+    let originalBytes = 0;
+    let truncated = false;
+    const trim = (value: unknown): unknown => {
+      const bytes = valueBytes(value);
+      if (!bytes) return value;
+      const remaining = Math.max(0, maxTextBytes - used);
+      const kept = bytes.subarray(0, remaining);
+      used += bytes.length;
+      originalBytes += bytes.length;
+      if (kept.length !== bytes.length) truncated = true;
+      return encodeValue(kept);
+    };
+    for (const field of fields) {
+      const value = entry[field];
+      if (Array.isArray(value)) entry[field] = value.map(trim);
+      else if (value !== undefined) entry[field] = trim(value);
+    }
+    if (Array.isArray(entry.submatches)) {
+      entry.submatches = entry.submatches.map((sub) => {
+        if (!sub || typeof sub !== "object") return sub;
+        const copy = { ...(sub as Record<string, unknown>) };
+        if (copy.match !== undefined) copy.match = trim(copy.match);
+        return copy;
+      });
+    }
+    entry.text_bytes = originalBytes;
+    if (truncated) entry.text_truncated = true;
+  }
+}
+
+function applyOutputBound(record: Record<string, unknown>, maxBytes: number | undefined): void {
+  if (maxBytes === undefined) return;
+  const collectionKey = ["files", "matches", "counts"].find((key) => Array.isArray(record[key]));
+  if (!collectionKey) return;
+  const collection = record[collectionKey] as unknown[];
+  while (collection.length > 0 && Buffer.byteLength(JSON.stringify(record) + "\n", "utf8") > maxBytes) {
+    collection.pop();
+    record.returned = collection.length;
+    if ("count" in record) record.count = collection.length;
+    const complete = record.complete;
+    if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
+  }
+  if (Buffer.byteLength(JSON.stringify(record) + "\n", "utf8") > maxBytes) {
+    const complete = record.complete;
+    if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
+  }
+}
+
 function projectFields(command: CommandName, record: Record<string, unknown>, fields: string[]): Record<string, unknown> {
   if (fields.length === 0) return record;
   for (const field of fields) {
@@ -430,9 +552,10 @@ function execute(
   parsed: ParsedCommand,
   backend: RgBackend,
 ): Promise<Record<string, unknown>> {
+  const scan = { maxFiles: parsed.scanMaxFiles, maxBytes: parsed.scanMaxBytes };
   switch (parsed.command) {
     case "files":
-      return files(backend, parsed.root, parsed.limit);
+      return files(backend, parsed.root, parsed.limit, scan);
     case "search":
     case "context":
       return matches(
@@ -443,6 +566,7 @@ function execute(
         parsed.limit,
         parsed.before,
         parsed.after,
+        scan,
       );
     case "count":
       return count(
@@ -451,9 +575,10 @@ function execute(
         parsed.patternBytes ?? Buffer.alloc(0),
         parsed.limit,
         parsed.countMatches,
+        scan,
       );
     case "metrics":
-      return metrics(backend, parsed.root, parsed.limit);
+      return metrics(backend, parsed.root, parsed.limit, scan);
   }
 }
 
@@ -499,6 +624,8 @@ export async function main(): Promise<void> {
           );
         }
         const projected = projectFields(parsed.command, record, parsed.fields);
+        applyTextBound(projected, parsed.maxTextBytes);
+        applyOutputBound(projected, parsed.maxBytes);
         return parsed.json ? JSON.stringify(projected) : projected;
       } finally {
         parsed.root.cleanup();

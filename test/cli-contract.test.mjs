@@ -387,6 +387,60 @@ test("mandatory denied globs cannot be bypassed by positive glob or scan flags",
   }
 });
 
+test("display text and serialized byte bounds mark truncation", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "long.txt", "needle-abcdefghijklmnopqrstuvwxyz\n");
+    const text = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "6"]);
+    assert.equal(text.code, 0);
+    assert.equal(text.data.matches[0].text_truncated, true);
+    assert.equal(text.data.matches[0].text_bytes > 6, true);
+    const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "180"]);
+    assert.equal(bytes.code, 0);
+    assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 180);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scan bounds stop discovery and report incomplete scans", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "one.txt", "needle\n");
+    write(root, "two.txt", "needle\n");
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--full", "--scan-max-files", "1"]);
+    assert.equal(code, 2);
+    assert.equal(data.error, "invalid_command");
+    const bounded = await runCli(["search", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(bounded.code, 0);
+    assert.equal(bounded.data.complete.scan, false);
+    assert.equal("total" in bounded.data, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit TOML policy is loaded, validated, and format aliases JSON", async () => {
+  const root = makeRoot();
+  const policy = join(root, "policy.toml");
+  try {
+    write(root, "visible.txt", "needle\n");
+    write(root, "optional/hidden.txt", "needle\n");
+    writeFileSync(policy, 'optional_globs = ["!**/optional/**"]\nmax_results = 1\n');
+    const files = await runCli(["files", "--root", root, "--policy", policy, "--full", "--format", "json"]);
+    assert.equal(files.code, 0);
+    assert.deepEqual([...files.data.files].sort(), ["policy.toml", "visible.txt"]);
+    assert.equal(files.data.bounded, false);
+    const malformed = join(root, "bad.toml");
+    writeFileSync(malformed, "not valid = [");
+    const bad = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(bad.code, 1);
+    assert.equal(bad.data.error, "invalid_policy");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("--json selects the stable JSON interface", async () => {
   const root = makeRoot();
   try {

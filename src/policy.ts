@@ -12,6 +12,7 @@
 import {
   mkdtempSync,
   realpathSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -35,6 +36,84 @@ export const MANDATORY_GLOBS: readonly string[] = [
 ];
 
 /** Optional exclusions used by bounded searches. */
+export interface PolicyConfig {
+  optionalGlobs: string[];
+  maxResults?: number;
+  maxTextBytes?: number;
+  maxBytes?: number;
+  scanMaxFiles?: number;
+  scanMaxBytes?: number;
+}
+
+function invalidPolicy(): RgError {
+  return new RgError("invalid_policy", "Policy must be a readable TOML file with supported values.");
+}
+
+function parseTomlValue(raw: string): string | number | string[] {
+  const value = raw.trim();
+  if (/^-?\d+$/.test(value)) {
+    const number = Number(value);
+    if (!Number.isSafeInteger(number) || number < 0) throw invalidPolicy();
+    return number;
+  }
+  if (value.startsWith("[") && value.endsWith("]")) {
+    const inner = value.slice(1, -1).trim();
+    if (inner === "") return [];
+    const parts = inner.split(",").map((part) => part.trim());
+    return parts.map((part) => {
+      if (part.length < 2 || part[0] !== '"' || part.at(-1) !== '"') throw invalidPolicy();
+      return part.slice(1, -1).replace(/\\([\\"])/g, "$1");
+    });
+  }
+  if (value.length >= 2 && value[0] === '"' && value.at(-1) === '"') {
+    return value.slice(1, -1).replace(/\\([\\"])/g, "$1");
+  }
+  throw invalidPolicy();
+}
+
+/** Load explicitly named, trusted TOML policy data; never auto-load config. */
+export function loadPolicy(rawPath: string): PolicyConfig {
+  try {
+    const path = rawPath.startsWith("/") ? rawPath : join(process.cwd(), rawPath);
+    if (!statSync(path).isFile()) throw invalidPolicy();
+    const text = readFileSync(path, "utf8");
+    const result: PolicyConfig = { optionalGlobs: [] };
+    let section = "";
+    for (const original of text.split(/\r?\n/)) {
+      const line = original.replace(/#.*/, "").trim();
+      if (!line) continue;
+      const header = /^\[([^\]]+)\]$/.exec(line);
+      if (header) {
+        if (header[1] !== "policy") throw invalidPolicy();
+        section = header[1];
+        continue;
+      }
+      const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line);
+      if (!match || (section && section !== "policy")) throw invalidPolicy();
+      const key = match[1];
+      const value = parseTomlValue(match[2]);
+      if (key === "optional_globs" || key === "optional_exclusions") {
+        if (!Array.isArray(value)) throw invalidPolicy();
+        result.optionalGlobs = value;
+      } else if (key === "max_results") result.maxResults = numberValue(value);
+      else if (key === "max_text_bytes") result.maxTextBytes = numberValue(value);
+      else if (key === "max_bytes") result.maxBytes = numberValue(value);
+      else if (key === "scan_max_files") result.scanMaxFiles = numberValue(value);
+      else if (key === "scan_max_bytes") result.scanMaxBytes = numberValue(value);
+      else throw invalidPolicy();
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof RgError && error.code === "invalid_policy") throw error;
+    throw invalidPolicy();
+  }
+}
+
+function numberValue(value: string | number | string[]): number {
+  if (typeof value !== "number" || value < 1) throw invalidPolicy();
+  return value;
+}
+
 export const OPTIONAL_GLOBS: readonly string[] = [
   "!**/node_modules/**",
   "!**/vendor/**",
