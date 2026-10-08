@@ -409,6 +409,19 @@ test("text bounds keep UTF-8 prefixes valid and selected metadata visible", asyn
   }
 });
 
+test("text bounds preserve bounded non-UTF-8 bytes", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "binary.txt", Buffer.from([0x6e, 0x65, 0x65, 0x64, 0x6c, 0x65, 0xff, 0x0a]));
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "6"]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.matches[0].text, { bytes: Buffer.from("needle").toString("base64") });
+    assert.equal(data.matches[0].text_truncated, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("scan bounds stop discovery and report incomplete scans", async () => {
   const root = makeRoot();
   try {

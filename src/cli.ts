@@ -469,6 +469,10 @@ function boundedUtf8Prefix(bytes: Buffer, maxBytes: number): Buffer {
   return Buffer.alloc(0);
 }
 
+function isByteValue(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && typeof (value as { bytes?: unknown }).bytes === "string");
+}
+
 function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | undefined): void {
   if (maxTextBytes === undefined) return;
   const collection = record.matches;
@@ -486,7 +490,7 @@ function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | 
       const bytes = valueBytes(value);
       if (!bytes) return value;
       const remaining = Math.max(0, maxTextBytes - used);
-      const kept = boundedUtf8Prefix(bytes, remaining);
+      const kept = isByteValue(value) ? bytes.subarray(0, remaining) : boundedUtf8Prefix(bytes, remaining);
       used += bytes.length;
       originalBytes += bytes.length;
       if (kept.length !== bytes.length) truncated = true;
