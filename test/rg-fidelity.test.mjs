@@ -40,7 +40,12 @@ function write(root, rel, content) {
 }
 
 function runCli(args, { env, cwd, timeoutMs } = {}) {
-  args = args.includes("--json") ? args : [...args, "--json"];
+  if (!args.includes("--json")) {
+    const separator = args.indexOf("--");
+    args = separator === -1
+      ? [...args, "--json"]
+      : [...args.slice(0, separator), "--json", ...args.slice(separator)];
+  }
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(NODE, [BIN, ...args], { env: env ?? process.env, cwd });
     let stdout = "";
@@ -269,7 +274,7 @@ test("test_non_utf8_root_does_not_corrupt_relative_paths", async (t) => {
   // Drive the CLI from bash so the raw 0xFF root bytes reach argv (Node
   // transcodes non-UTF-8 argv, so a POSIX parent is required here).
   const script = `ROOT="$BASE/root-$(printf '\\xff')"
-"$BIN" search needle --root "$ROOT" --full`;
+"$BIN" search needle --root "$ROOT" --full --json`;
   const proc = spawnSync("bash", ["-c", script], {
     env: { ...process.env, BASE: base, BIN },
     encoding: "utf-8",
@@ -558,19 +563,22 @@ test("test_unbounded_adapter_keeps_sensitive_denies", async (t) => {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   write(root, "allowed.txt", "needle\n");
   write(root, "src/app.txt", "needle\n");
-  for (const denied of [
+  const optional = [
     "node_modules/dependency.txt",
     "dist/bundle.js",
     "build/generated.txt",
     "target/output.txt",
     "coverage/report.txt",
+  ];
+  const mandatory = [
     ".env",
     ".env.production",
     ".env.local",
     "id_rsa",
     "signing.pem",
     "key.key",
-  ]) {
+  ];
+  for (const denied of [...optional, ...mandatory]) {
     write(root, denied, "needle\n");
   }
   for (const command of ["search", "files"]) {
@@ -582,20 +590,11 @@ test("test_unbounded_adapter_keeps_sensitive_denies", async (t) => {
     assert.equal(code, 0, command);
     const paths =
       command === "search" ? data.matches.map((m) => m.path) : data.files;
-    for (const denied of [
-      "node_modules/dependency.txt",
-      "dist/bundle.js",
-      "build/generated.txt",
-      "target/output.txt",
-      "coverage/report.txt",
-      ".env",
-      ".env.production",
-      ".env.local",
-      "id_rsa",
-      "signing.pem",
-      "key.key",
-    ]) {
+    for (const denied of mandatory) {
       assert.ok(!paths.includes(denied), `${command}: ${denied} should be denied`);
+    }
+    for (const included of optional) {
+      assert.ok(paths.includes(included), `${command}: ${included} should be included by --full`);
     }
     assert.ok(paths.includes("allowed.txt"), command);
     assert.ok(paths.includes("src/app.txt"), command);

@@ -25,7 +25,7 @@ Run `bin/codebase-search --help` for the complete interface.
 
 ## Requirements
 
-- Node.js >= 20.11 (TypeScript build uses `tsc`)
+- Node.js >= 20 (TypeScript build uses `tsc`)
 - [ripgrep](https://github.com/burntsushi/ripgrep) (`rg`)
 
 ## Setup
