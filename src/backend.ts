@@ -117,10 +117,12 @@ export class RgBackend {
     this.rgPath = resolveRg();
     this.root = root;
     this.baseArgs = ["--no-config"];
+    // Apply caller filters first, then append mandatory denies so a positive
+    // --glob cannot override the protected-file policy.
     for (const glob of [
-      ...MANDATORY_GLOBS,
       ...(options.full ? [] : OPTIONAL_GLOBS),
       ...(options.globs ?? []),
+      ...MANDATORY_GLOBS,
     ]) {
       this.baseArgs.push("--glob", glob);
     }

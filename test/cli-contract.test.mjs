@@ -276,6 +276,33 @@ test("--full includes optional paths but denies sensitive paths", async () => {
   }
 });
 
+test("mandatory denied globs cannot be bypassed by positive glob or scan flags", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "safe.txt", "public-marker\n");
+    write(root, "secret.key", "synthetic-secret-marker\n");
+    const common = ["--root", root, "--full", "--glob", "**/*.key", "--hidden", "--no-ignore"];
+    const cases = [
+      ["files", ...common],
+      ["search", "synthetic-secret-marker", ...common],
+      ["context", "synthetic-secret-marker", ...common],
+      ["count", "synthetic-secret-marker", ...common],
+      ["metrics", ...common],
+    ];
+    for (const args of cases) {
+      const { data, code, stdout } = await runCli(args);
+      assert.equal(code, 0, args[0]);
+      assert.equal(stdout.includes("synthetic-secret-marker"), false, args[0]);
+      const serialized = JSON.stringify(data);
+      assert.equal(serialized.includes("secret.key"), false, args[0]);
+      if (args[0] === "files") assert.deepEqual(data.files, []);
+      if (args[0] === "metrics") assert.equal(data.files, 0);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("--json selects the stable JSON interface", async () => {
   const root = makeRoot();
   try {
