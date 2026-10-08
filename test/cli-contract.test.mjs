@@ -12,7 +12,7 @@ import {
   unlinkSync,
   symlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -129,8 +129,7 @@ test("setup hooks requires an explicit isolated home", async () => {
 });
 
 test("setup hooks rejects personal home aliases before dispatch", async () => {
-  const personalHome = process.env.HOME;
-  assert.ok(personalHome);
+  const personalHome = userInfo().homedir;
   const aliasRoot = makeRoot();
   const symlinkHome = join(aliasRoot, "home");
   symlinkSync(personalHome, symlinkHome, "dir");
@@ -145,6 +144,22 @@ test("setup hooks rejects personal home aliases before dispatch", async () => {
     }
   } finally {
     rmSync(aliasRoot, { recursive: true, force: true });
+  }
+});
+
+test("setup hooks rejects the account home when HOME is overridden", async () => {
+  const fakeHome = makeRoot();
+  try {
+    for (const action of ["status", "install", "uninstall"]) {
+      const { data, code } = await runCli(["setup", "hooks", action, "--home", userInfo().homedir], {
+        env: { ...process.env, HOME: fakeHome },
+      });
+      assert.equal(code, 2);
+      assert.equal(data.status, "error");
+      assert.equal(data.error, "invalid_command");
+    }
+  } finally {
+    rmSync(fakeHome, { recursive: true, force: true });
   }
 });
 

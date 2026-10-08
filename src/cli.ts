@@ -18,7 +18,7 @@ import {
   type AxiCliOptions,
 } from "axi-sdk-js";
 import { realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import { RgBackend, reap, RgError, type RgOptions } from "./backend.js";
 import { count, files, matches, metrics } from "./results.js";
@@ -30,7 +30,7 @@ const DEFAULT_LIMIT = 50;
 
 function isPersonalHome(homeDir: string): boolean {
   if (homeDir === "~" || homeDir === "$HOME" || homeDir === "${HOME}") return true;
-  const personalHome = homedir();
+  const personalHome = userInfo().homedir;
   if (resolve(homeDir) === resolve(personalHome)) return true;
   try {
     return realpathSync(homeDir) === realpathSync(personalHome);
