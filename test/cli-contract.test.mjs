@@ -74,7 +74,7 @@ function write(root, rel, content) {
 test("help lists all subcommands", async () => {
   const { stdout, code } = await runCli(["--help"]);
   assert.equal(code, 0);
-  for (const cmd of ["files", "search", "context", "metrics"]) {
+  for (const cmd of ["files", "search", "context", "count", "metrics"]) {
     assert.ok(stdout.includes(cmd), `help missing ${cmd}`);
   }
 });
@@ -317,6 +317,167 @@ test("context reports before/after arrays", async () => {
     assert.equal(data.status, "ok");
     assert.deepEqual(data.matches[0].before, []);
     assert.deepEqual(data.matches[0].after, ["needle two\n"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("count reports per-file and aggregate matching-line units", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "needle needle\nneedle\n");
+    write(root, "src/other.txt", "needle\n");
+    const { data, code } = await runCli(["count", "needle", "--root", root, "--full"]);
+    assert.equal(code, 0);
+    assert.equal(data.status, "ok");
+    assert.deepEqual(data.counts, [
+      { path: "src/app.txt", count: 2 },
+      { path: "src/other.txt", count: 1 },
+    ]);
+    assert.equal(data.total, 3);
+    assert.equal(data.matched_files, 2);
+    assert.deepEqual(data.complete, { scan: true, display: true });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("count-matches reports per-occurrence counts", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "needle needle\nneedle\n");
+    const { data, code } = await runCli([
+      "count",
+      "needle",
+      "--root",
+      root,
+      "--full",
+      "--count-matches",
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.counts, [{ path: "src/app.txt", count: 3 }]);
+    assert.equal(data.total, 3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("search supports literal case and type/glob filters", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/App.TS", "Needle [literal]\n");
+    write(root, "src/app.js", "Needle [literal]\n");
+    write(root, "src/other.txt", "needle [literal]\n");
+    const { data, code } = await runCli([
+      "search",
+      "Needle [literal]",
+      "--root",
+      root,
+      "--full",
+      "--fixed-strings",
+      "--ignore-case",
+      "--glob",
+      "*.TS",
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.matches.map((item) => item.path), ["src/App.TS"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("files supports type exclusions and native ignore controls", async () => {
+  const root = makeRoot();
+  try {
+    write(root, ".ignore", "ignored.txt\n");
+    write(root, "ignored.txt", "needle\n");
+    write(root, ".hidden.txt", "needle\n");
+    write(root, "visible.js", "needle\n");
+    const { data, code } = await runCli([
+      "files",
+      "--root",
+      root,
+      "--full",
+      "--json",
+      "--no-ignore",
+      "--hidden",
+      "--glob",
+      "*.txt",
+      "--type-not",
+      "js",
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual([...data.files].sort(), [".hidden.txt", "ignored.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("search supports multiline matching", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "first\nsecond\n");
+    const { data, code } = await runCli([
+      "search",
+      "first\\nsecond",
+      "--root",
+      root,
+      "--full",
+      "--multiline",
+    ]);
+    assert.equal(code, 0);
+    assert.equal(data.count, 1);
+    assert.equal(data.matches[0].line, 1);
+    assert.equal(data.matches[0].end_line, 2);
+    assert.equal(data.matches[0].end_column, 7);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("context uses multiline match boundary for trailing lines", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "before\nfirst\nsecond\nafter\n");
+    const { data, code } = await runCli([
+      "context",
+      "first\\nsecond",
+      "--root",
+      root,
+      "--full",
+      "--multiline",
+      "--before",
+      "1",
+      "--after",
+      "1",
+    ]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.matches[0].before, ["before\n"]);
+    assert.deepEqual(data.matches[0].after, ["after\n"]);
+    assert.equal(data.matches[0].end_line, 3);
+    assert.equal(data.matches[0].end_column, 7);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pcre2 reports unsupported capability when rg rejects it", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/app.txt", "needle\n");
+    const tools = join(root, "tools");
+    mkdirSync(tools);
+    const fake = join(tools, "rg");
+    writeFileSync(
+      fake,
+      "#!/usr/bin/env node\nprocess.stderr.write('rg: unrecognized flag --pcre2\\n'); process.exit(2);\n",
+    );
+    chmodSync(fake, 0o755);
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--pcre2"], {
+      env: { ...process.env, PATH: `${tools}:${ORIGINAL_PATH}` },
+    });
+    assert.equal(code, 1);
+    assert.equal(data.error, "unsupported_feature");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

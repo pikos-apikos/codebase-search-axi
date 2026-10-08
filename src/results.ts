@@ -61,10 +61,22 @@ interface MatchRecord {
   path: Value;
   line: number;
   column: number;
+  end_line?: number;
+  end_column?: number;
   text: Value;
   submatches: Array<Record<string, unknown>>;
   before?: Value[];
   after?: Value[];
+}
+
+function spanEnd(line: number, text: Buffer, end: number): [number, number] {
+  const prefix = text.subarray(0, end);
+  let endLine = line;
+  for (const byte of prefix) {
+    if (byte === 0x0a) endLine += 1;
+  }
+  const newline = prefix.lastIndexOf(0x0a);
+  return [endLine, newline === -1 ? end + 1 : end - newline];
 }
 
 function contextKey(path: Value, line: number): string {
@@ -146,7 +158,7 @@ export async function matches(
     const data = event.data as Record<string, unknown>;
     const line = data["line_number"] as number;
     const text = encoded(rgBytes(data["lines"] as ByteValue));
-    following = following.filter((item) => line <= item.line + after);
+    following = following.filter((item) => line <= (item.end_line ?? item.line) + after);
     for (const item of following) {
       if (item.after && !emittedContext.has(contextKey(item.path, line))) {
         item.after.push(text);
@@ -164,6 +176,8 @@ export async function matches(
           ...match,
           match: encoded(rgBytes(match["match"] as ByteValue)),
         }));
+        const lineBytes = rgBytes(data["lines"] as ByteValue);
+        const [endLine, endColumn] = spanEnd(line, lineBytes, Number(submatches[0]["end"]));
         const item: MatchRecord = {
           path: eventPath(data, root),
           line,
@@ -171,6 +185,10 @@ export async function matches(
           text,
           submatches,
         };
+        if (endLine !== line) {
+          item.end_line = endLine;
+          item.end_column = endColumn;
+        }
         emittedContext.add(contextKey(item.path, line));
         if (command === "context") {
           item.before = previous
@@ -195,6 +213,53 @@ export async function matches(
     }
   }
   return envelope(command, "matches", values, total, limit);
+}
+
+export async function count(
+  backend: RgBackend,
+  root: ResolvedRoot,
+  pattern: Buffer,
+  limit: number | null,
+  countMatches = false,
+): Promise<Record<string, unknown>> {
+  const byPath = new Map<string, { path: Value; count: number }>();
+  let total = 0;
+  for await (const event of backend.events(pattern, 0, 0)) {
+    if (event.type !== "match") continue;
+    const data = event.data as Record<string, unknown>;
+    const path = eventPath(data, root);
+    const key = JSON.stringify(path);
+    let item = byPath.get(key);
+    if (!item) {
+      item = { path, count: 0 };
+      byPath.set(key, item);
+    }
+    const submatches = (data["submatches"] as unknown[] | undefined) ?? [];
+    const increment = countMatches ? Math.max(1, submatches.length) : 1;
+    item.count += increment;
+    total += increment;
+  }
+  const values = [...byPath.values()]
+    .sort((left, right) => {
+      const leftKey = JSON.stringify(left.path);
+      const rightKey = JSON.stringify(right.path);
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    })
+    .slice(0, limit ?? undefined);
+  return {
+    status: "ok",
+    command: "count",
+    counts: values,
+    count: values.length,
+    returned: values.length,
+    total,
+    matched_files: byPath.size,
+    bounded: limit !== null,
+    complete: { scan: true, display: values.length === byPath.size },
+    ...(values.length === byPath.size
+      ? {}
+      : { help: "Use --full to return all results within the existing exclusions." }),
+  };
 }
 
 export async function metrics(

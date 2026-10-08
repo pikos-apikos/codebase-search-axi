@@ -42,6 +42,20 @@ export interface RgEvent {
   [key: string]: unknown;
 }
 
+export interface RgOptions {
+  full?: boolean;
+  fixedStrings?: boolean;
+  caseMode?: "sensitive" | "ignore" | "smart";
+  types?: string[];
+  typesNot?: string[];
+  globs?: string[];
+  noIgnore?: boolean;
+  hidden?: boolean;
+  multiline?: boolean;
+  multilineDotall?: boolean;
+  pcre2?: boolean;
+}
+
 const DIAGNOSTIC_LIMIT = 65536;
 
 const INVALID_PATTERN_MARKERS: readonly string[] = [
@@ -99,13 +113,27 @@ export class RgBackend {
   /** Set when the CLI was interrupted; scans then never report success. */
   interrupted = false;
 
-  constructor(root: ResolvedRoot, full = false) {
+  constructor(root: ResolvedRoot, options: RgOptions = {}) {
     this.rgPath = resolveRg();
     this.root = root;
     this.baseArgs = ["--no-config"];
-    for (const glob of [...MANDATORY_GLOBS, ...(full ? [] : OPTIONAL_GLOBS)]) {
+    for (const glob of [
+      ...MANDATORY_GLOBS,
+      ...(options.full ? [] : OPTIONAL_GLOBS),
+      ...(options.globs ?? []),
+    ]) {
       this.baseArgs.push("--glob", glob);
     }
+    for (const type of options.types ?? []) this.baseArgs.push("--type", type);
+    for (const type of options.typesNot ?? []) this.baseArgs.push("--type-not", type);
+    if (options.noIgnore) this.baseArgs.push("--no-ignore");
+    if (options.hidden) this.baseArgs.push("--hidden");
+    if (options.fixedStrings) this.baseArgs.push("--fixed-strings");
+    if (options.caseMode === "ignore") this.baseArgs.push("--ignore-case");
+    if (options.caseMode === "smart") this.baseArgs.push("--smart-case");
+    if (options.multiline) this.baseArgs.push("--multiline");
+    if (options.multilineDotall) this.baseArgs.push("--multiline-dotall");
+    if (options.pcre2) this.baseArgs.push("--pcre2");
   }
 
   /** Absolute-then-relative args shared by every invocation. */
@@ -287,6 +315,18 @@ function classifyFailure(detail: Buffer): RgError {
     return new RgError(
       "invalid_pattern",
       "Check the search regular expression.",
+      detail,
+    );
+  }
+  if (
+    text.includes("unrecognized flag") ||
+    text.includes("unrecognized option") ||
+    text.includes("unknown option") ||
+    text.includes("PCRE2 is not available")
+  ) {
+    return new RgError(
+      "unsupported_feature",
+      "The requested ripgrep feature is unavailable.",
       detail,
     );
   }
