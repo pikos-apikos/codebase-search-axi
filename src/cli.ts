@@ -10,8 +10,6 @@
  */
 import {
   AxiError,
-  renderError,
-  renderOutput,
   runAxiCli,
   type AxiCliCommand,
   type AxiCliOptions,
@@ -33,6 +31,29 @@ interface ParsedCommand {
   json: boolean;
   before: number;
   after: number;
+}
+
+let outputJson = false;
+
+function hasJsonSelector(args: string[]): boolean {
+  let afterSeparator = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--") {
+      afterSeparator = true;
+    } else if (!afterSeparator && arg === "--json") {
+      return true;
+    } else if (
+      !afterSeparator &&
+      (arg === "--root" ||
+        arg === "--max-results" ||
+        arg === "--before" ||
+        arg === "--after")
+    ) {
+      i += 1;
+    }
+  }
+  return false;
 }
 
 function usageError(message: string): AxiError {
@@ -169,7 +190,7 @@ const USAGE_ERROR_CODES: ReadonlySet<string> = new Set([
   "VALIDATION_ERROR",
 ]);
 
-function formatError(error: unknown): { output: string; exitCode: number } {
+function formatJsonError(error: unknown): { output: string; exitCode: number } {
   const axi =
     error instanceof AxiError
       ? error
@@ -184,18 +205,11 @@ function formatError(error: unknown): { output: string; exitCode: number } {
     process.stderr.write(error.diagnostics);
   }
   const exitCode = USAGE_ERROR_CODES.has(axi.code) ? 2 : 1;
-  const wantsJson = process.argv.slice(2).includes("--json");
   const record: Record<string, unknown> = { status: "error", error: axi.code, message: axi.message };
   return {
-    output: `${wantsJson ? JSON.stringify(record) : renderError(axi.message, axi.code)}\n`,
+    output: `${JSON.stringify(record)}\n`,
     exitCode,
   };
-}
-
-function renderSelected(record: Record<string, unknown>): string {
-  return process.argv.slice(2).includes("--json")
-    ? JSON.stringify(record)
-    : renderOutput(record);
 }
 
 const HELP = [
@@ -294,6 +308,12 @@ export async function main(): Promise<void> {
       backend = temp;
       try {
         const record = await execute(parsed, temp);
+        if (interrupted || temp.interrupted) {
+          throw new RgError(
+            "ripgrep_failed",
+            "Scan interrupted; no complete results are available.",
+          );
+        }
         return parsed.json ? JSON.stringify(record) : record;
       } finally {
         parsed.root.cleanup();
@@ -310,24 +330,8 @@ export async function main(): Promise<void> {
     metrics: buildCommand("metrics"),
   };
 
-  // Preserve the tool's structured error contract for a flag in command position
-  // (the SDK's built-in rendering for that case is not the tool envelope).
-  // Bare --help and version flags are handled by the SDK itself.
   const argv = process.argv.slice(2);
-  const sdkOwned =
-    argv.length === 1 &&
-    (argv[0] === "--help" || argv[0] === "-v" || argv[0] === "-V" || argv[0] === "--version");
-  if (argv[0]?.startsWith("-") && !sdkOwned) {
-    process.stdout.write(
-      `${renderSelected({
-        status: "error",
-        error: "invalid_command",
-        message: `Flags must come after the command: ${argv[0]}`,
-      })}\n`,
-    );
-    process.exitCode = 2;
-    return;
-  }
+  outputJson = hasJsonSelector(argv.slice(1));
 
   const options: AxiCliOptions = {
     description: "Bounded, read-only codebase discovery and search.",
@@ -335,13 +339,6 @@ export async function main(): Promise<void> {
     topLevelHelp: HELP,
     getCommandHelp: (command: string) =>
       command in commands ? commandHelp(command) : undefined,
-    renderUnknownCommand: (command: string) =>
-      `${renderSelected({
-        status: "error",
-        error: "invalid_command",
-        message: `Unknown command: ${command}`,
-      })}\n`,
-    formatError,
     home: async () => {
       throw new AxiError(
         "A subcommand is required.",
@@ -351,6 +348,15 @@ export async function main(): Promise<void> {
     },
     commands,
   };
+  if (outputJson) {
+    options.renderUnknownCommand = (command: string) =>
+      `${JSON.stringify({
+        status: "error",
+        error: "invalid_command",
+        message: `Unknown command: ${command}`,
+      })}\n`;
+    options.formatError = formatJsonError;
+  }
   try {
     await runAxiCli(options);
   } finally {

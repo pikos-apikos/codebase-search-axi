@@ -21,18 +21,17 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { AxiError } from "axi-sdk-js";
 import { MANDATORY_GLOBS, OPTIONAL_GLOBS, type ResolvedRoot } from "./policy.js";
 
 /** A structured backend/scan error with an optional raw diagnostic payload. */
-export class RgError extends Error {
-  readonly code: string;
+export class RgError extends AxiError {
   /** Raw stderr bytes to forward verbatim, when present. */
   readonly diagnostics: Buffer | undefined;
 
   constructor(code: string, message: string, diagnostics?: Buffer) {
-    super(message);
+    super(message, code);
     this.name = "RgError";
-    this.code = code;
     this.diagnostics = diagnostics;
   }
 }

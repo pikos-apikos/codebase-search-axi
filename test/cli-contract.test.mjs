@@ -218,6 +218,21 @@ test("--all is rejected with a migration hint", async () => {
   }
 });
 
+test("--json after the pattern separator remains a pattern value", async () => {
+  const root = makeRoot();
+  try {
+    const { stdout, code } = await runCli(
+      ["search", "--root", join(root, "missing"), "--", "--json"],
+      { json: false },
+    );
+    assert.equal(code, 1);
+    assert.match(stdout, /^error:/);
+    assert.ok(!stdout.trimStart().startsWith("{"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("context reports before/after arrays", async () => {
   const root = makeRoot();
   try {

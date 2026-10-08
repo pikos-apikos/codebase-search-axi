@@ -480,7 +480,7 @@ fs.writeFileSync(${JSON.stringify(marker)}, String(process.pid));
 setTimeout(() => process.exit(0), 30000);`,
   );
   const startedAt = Date.now();
-  const child = spawn(NODE, [BIN, "search", "needle", "--root", root], { env });
+  const child = spawn(NODE, [BIN, "search", "needle", "--root", root, "--json"], { env });
   let stdout = "";
   child.stdout.on("data", (d) => (stdout += d));
   const deadline = Date.now() + 5000;
