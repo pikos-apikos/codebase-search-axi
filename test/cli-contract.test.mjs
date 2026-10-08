@@ -9,6 +9,7 @@ import {
   chmodSync,
   existsSync,
   unlinkSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -174,6 +175,50 @@ test("mandatory denied roots are rejected across commands", async () => {
     const allowed = await runCli(["files", "--root", join(root, "allowed"), "--full"]);
     assert.equal(allowed.code, 0);
     assert.deepEqual(allowed.data.files, ["pack.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("policy matrix covers symlink roots across every command", async () => {
+  const root = makeRoot();
+  try {
+    write(root, ".git/objects/pack.txt", "needle\n");
+    write(root, "allowed/pack.txt", "needle\n");
+    symlinkSync(join(root, "allowed"), join(root, "allowed-link"));
+    symlinkSync(join(root, ".git", "objects"), join(root, "git-link"));
+
+    for (const command of ["files", "search", "context", "metrics"]) {
+      const allowedArgs =
+        command === "files" || command === "metrics"
+          ? [command, "--root", join(root, "allowed-link"), "--full", "--json"]
+          : [command, "needle", "--root", join(root, "allowed-link"), "--full", "--json"];
+      const allowed = await runCli(allowedArgs);
+      assert.equal(allowed.code, 0, command);
+      const allowedValues =
+        command === "files"
+          ? allowed.data.files
+          : command === "metrics"
+            ? [allowed.data.files, allowed.data.files_seen]
+            : allowed.data.matches.map((item) => item.path);
+      assert.ok(allowedValues.flat().includes(command === "metrics" ? 1 : "pack.txt"), command);
+
+      const deniedArgs =
+        command === "files" || command === "metrics"
+          ? [command, "--root", join(root, "git-link"), "--full", "--json"]
+          : [command, "needle", "--root", join(root, "git-link"), "--full", "--json"];
+      const denied = await runCli(deniedArgs);
+      assert.equal(denied.code, 1, command);
+      assert.equal(denied.data.error, "invalid_root", command);
+
+      const allArgs =
+        command === "files" || command === "metrics"
+          ? [command, "--root", root, "--all", "--json"]
+          : [command, "needle", "--root", root, "--all", "--json"];
+      const removedAll = await runCli(allArgs);
+      assert.equal(removedAll.code, 2, `${command}: --all`);
+      assert.equal(removedAll.data.error, "invalid_command", `${command}: --all`);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
