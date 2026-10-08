@@ -15,29 +15,31 @@ The planned v1 search, policy, output, and component contract is documented in
 ## Usage
 
 ```bash
-bin/codebase-search
-bin/codebase-search files --root .
-bin/codebase-search search 'pattern' --root . --max-results 25
-bin/codebase-search context 'pattern' --root . --before 2 --after 2
-bin/codebase-search count 'pattern' --root . --full --json
-bin/codebase-search metrics --root .
+npx --no-install codebase-search
+npx --no-install codebase-search files --root .
+npx --no-install codebase-search search 'pattern' --root . --max-results 25
+npx --no-install codebase-search context 'pattern' --root . --before 2 --after 2
+npx --no-install codebase-search count 'pattern' --root . --full --json
+npx --no-install codebase-search metrics --root .
 ```
 
-Run `bin/codebase-search --help` for the complete interface.
+Run `npx --no-install codebase-search --help` for the complete interface.
 
 ## Requirements
 
 - Node.js >= 20 (TypeScript build uses `tsc`)
 - [ripgrep](https://github.com/burntsushi/ripgrep) (`rg`)
 
-## Setup
+## Install from a local tarball
 
 ```bash
-npm install
-npm run build
+npm install ./codebase-search-axi-0.1.0.tgz
+npx --no-install codebase-search --help
 ```
 
-`bin/codebase-search` is a Node launcher; it requires the compiled `dist/` output from `npm run build`.
+The package includes the stable `codebase-search` executable and compiled CLI; no checkout or TypeScript build is needed after installation.
+
+For development from this checkout, use `npm install && npm run build`, then run `bin/codebase-search`.
 
 ## AXI conformance
 

@@ -364,7 +364,8 @@ function setupCommand(args: string[]): Record<string, unknown> | string {
   }
   if (!homeDir) throw usageError("--home PATH is required for setup hooks");
   if (isPersonalHome(homeDir)) throw usageError("--home must be an isolated home");
-  const options = { scope: "user" as const, homeDir };
+  const hookErrors: string[] = [];
+  const options = { scope: "user" as const, homeDir, onError: (message: string) => hookErrors.push(message) };
   let record: Record<string, unknown>;
   if (action === "install") {
     installSessionStartHooks(options);
@@ -374,6 +375,9 @@ function setupCommand(args: string[]): Record<string, unknown> | string {
     record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
   } else {
     record = { status: "ok", command: "setup", action, hooks: sessionStartHookStatus(options) };
+  }
+  if (hookErrors.length > 0) {
+    throw new AxiError(`setup hooks ${action} failed: ${hookErrors.join("; ")}`, "hook_setup_failed");
   }
   return json ? JSON.stringify(record) : record;
 }

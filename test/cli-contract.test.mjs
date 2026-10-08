@@ -148,6 +148,23 @@ test("setup hooks rejects personal home aliases before dispatch", async () => {
   }
 });
 
+test("setup hooks surfaces SDK write failures", async () => {
+  for (const action of ["install", "uninstall"]) {
+    const home = makeRoot();
+    try {
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      writeFileSync(join(home, ".claude", "settings.json"), "{\n", "utf-8");
+      const { data, code } = await runCli(["setup", "hooks", action, "--home", home]);
+      assert.equal(code, 1);
+      assert.equal(data.status, "error");
+      assert.equal(data.error, "hook_setup_failed");
+      assert.match(data.message, /settings\.json/);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+});
+
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
