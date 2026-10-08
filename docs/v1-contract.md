@@ -278,8 +278,8 @@ shipped execution path, and there is no shell-based `rg` invocation:
   apply mandatory denies and optional exclusions, and return an immutable
   effective policy. It never invokes `rg`.
 - `backend`: the only subprocess boundary, invoking `rg` directly through Node
-subprocess APIs. It checks capabilities,
-  translates the approved flag model to native ripgrep arguments, streams
+  subprocess APIs. It checks capabilities, translates the approved flag model
+  to native ripgrep arguments, streams
   events, and translates dependency failures. It never chooses policy or
   formats output. There is no second backend.
 - `results`: normalize events into files/matches/context/count/metrics,
@@ -287,8 +287,8 @@ subprocess APIs. It checks capabilities,
   aggregate-vs-returned distinctions. It never reparses patterns.
 - `cli`: parse and validate command flags, resolve dispatch through the SDK,
   select TOON/JSON (including the explicit `--json` interface), and map
-  errors/exit codes through the SDK's structured error plumbing. It does not scan files or construct raw `rg`
-  arguments directly.
+  errors/exit codes through the SDK's structured error plumbing. It does not
+  scan files or construct raw `rg` arguments directly.
 
 ## Verification and downstream mapping
 

@@ -2,7 +2,7 @@
 
 A bounded, read-only codebase search CLI for agents, built around [ripgrep](https://github.com/burntsushi/ripgrep) and designed with [AXI](https://github.com/kunchenguid/axi) (Agent eXperience Interface) principles.
 
-**Target architecture (settled):** a single TypeScript/Node package with `axi-sdk-js` as a runtime dependency, invoking `rg` directly; no Python subprocess bridge. The SDK owns dispatch, TOON serialization, structured error plumbing, version fast path, and opt-in agent integrations; this package owns search semantics, file policy, byte fidelity, result processing, bounds, completeness, and command-specific validation.
+**Target architecture (settled):** see the [v1 contract's scope and ownership boundaries](docs/v1-contract.md#scope-and-baseline).
 
 **Current implementation:** Python 3, retained as a temporary state until the Issue 3 Node port lands.
 
@@ -25,7 +25,7 @@ Run `bin/codebase-search --help` for the complete interface.
 
 ## Requirements
 
-- Node.js (target) / Python 3 (current)
+- Python 3 (current implementation)
 - [ripgrep](https://github.com/burntsushi/ripgrep) (`rg`)
 
 ## AXI conformance
@@ -38,7 +38,6 @@ Deliberate divergences from `gh-axi`, kept because they fit a small local-search
 - No no-argument dashboard; a subcommand is required (principle 8).
 - Output records carry no next-step suggestions (principle 9).
 - No npm package or release pipeline; use the repository directly via `bin/codebase-search`.
-- Currently implemented in Python 3; the settled target is the TypeScript/Node package described above (a temporary divergence until the Issue 3 port lands).
 
 ## Test
 
