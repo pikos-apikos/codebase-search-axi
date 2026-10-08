@@ -47,11 +47,6 @@ export const OPTIONAL_GLOBS: readonly string[] = [
   "!**/__pycache__/**",
 ];
 
-export const SAFE_GLOBS: readonly string[] = [
-  ...MANDATORY_GLOBS,
-  ...OPTIONAL_GLOBS,
-];
-
 /** A resolved root the backend can search byte-exactly. */
 export interface ResolvedRoot {
   /** Absolute, valid-UTF-8 path to hand rg after `--`. */
@@ -90,6 +85,39 @@ function isDirectory(path: Buffer): boolean {
   }
 }
 
+function startsWithAscii(value: Buffer, text: string): boolean {
+  const prefix = Buffer.from(text, "ascii");
+  return value.subarray(0, prefix.length).equals(prefix);
+}
+
+function endsWithAscii(value: Buffer, text: string): boolean {
+  const suffix = Buffer.from(text, "ascii");
+  return value.length >= suffix.length && value.subarray(-suffix.length).equals(suffix);
+}
+
+function isDeniedRoot(path: Buffer): boolean {
+  return path
+    .toString("latin1")
+    .split("/")
+    .some((part) => {
+      const name = Buffer.from(part, "latin1");
+      return (
+        name.equals(Buffer.from(".git", "ascii")) ||
+        startsWithAscii(name, ".env") ||
+        startsWithAscii(name, "id_rsa") ||
+        [".pem", ".key", ".crt", ".cer", ".p12", ".pfx"].some((suffix) =>
+          endsWithAscii(name, suffix),
+        )
+      );
+    });
+}
+
+function rejectDeniedRoot(path: Buffer): void {
+  if (isDeniedRoot(path)) {
+    throw invalidRoot();
+  }
+}
+
 /** Resolve `--root` to a byte-exact, searchable absolute directory. */
 export function resolveRoot(rawRoot: Buffer): ResolvedRoot {
   let abs = expandUser(rawRoot);
@@ -109,6 +137,7 @@ export function resolveRoot(rawRoot: Buffer): ResolvedRoot {
     } catch {
       canonical = asString;
     }
+    rejectDeniedRoot(Buffer.from(canonical, "utf-8"));
     return {
       searchPath: canonical,
       searchPathBytes: Buffer.from(canonical, "utf-8"),
@@ -121,6 +150,7 @@ export function resolveRoot(rawRoot: Buffer): ResolvedRoot {
   if (!isDirectory(abs)) {
     throw invalidRoot();
   }
+  rejectDeniedRoot(abs);
   const dir = mkdtempSync(join(tmpdir(), "codebase-search-root-"));
   const link = join(dir, "root");
   symlinkSync(abs, link);

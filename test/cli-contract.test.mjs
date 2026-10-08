@@ -158,6 +158,27 @@ test("missing root is a structured invalid_root error", async () => {
   }
 });
 
+test("mandatory denied roots are rejected across commands", async () => {
+  const root = makeRoot();
+  try {
+    write(root, ".git/objects/pack.txt", "needle\n");
+    write(root, "allowed/pack.txt", "needle\n");
+    for (const command of ["files", "search", "context", "metrics"]) {
+      const args = command === "files" || command === "metrics"
+        ? [command, "--root", join(root, ".git/objects"), "--full"]
+        : [command, "needle", "--root", join(root, ".git/objects"), "--full"];
+      const denied = await runCli(args);
+      assert.equal(denied.code, 1, command);
+      assert.equal(denied.data.error, "invalid_root", command);
+    }
+    const allowed = await runCli(["files", "--root", join(root, "allowed"), "--full"]);
+    assert.equal(allowed.code, 0);
+    assert.deepEqual(allowed.data.files, ["pack.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("--full includes optional paths but denies sensitive paths", async () => {
   const root = makeRoot();
   try {
