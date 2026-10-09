@@ -488,6 +488,12 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
     writeFileSync(malformed, 'optional_globs = "one\n two"\n');
     const multilineBasic = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(multilineBasic.code, 1);
+    writeFileSync(malformed, Buffer.from('optional_globs = ["foo\0bar"]\n', "utf8"));
+    const nul = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(nul.code, 1);
+    writeFileSync(malformed, Buffer.from([0x6f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x5f, 0x67, 0x6c, 0x6f, 0x62, 0x73, 0x20, 0x3d, 0x20, 0x5b, 0x22, 0x66, 0x6f, 0x6f, 0xff, 0x22, 0x5d, 0x0a]));
+    const invalidUtf8 = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(invalidUtf8.code, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -113,9 +113,17 @@ function splitTomlArray(raw: string): string[] {
 function parseTomlString(value: string): string | undefined {
   if (value.length < 2) return undefined;
   const triple = value.slice(0, 3);
-  if (triple === "'''" && value.endsWith("'''")) return value.slice(3, -3).replace(/^\r?\n/, "");
+  if (triple === "'''" && value.endsWith("'''")) {
+    const result = value.slice(3, -3).replace(/^\r?\n/, "");
+    validateTomlText(result, true);
+    return result;
+  }
   if (triple === '"""' && value.endsWith('"""')) return decodeBasicString(value.slice(3, -3).replace(/^\r?\n/, ""), true);
-  if (value[0] === "'" && value.at(-1) === "'") return value.slice(1, -1);
+  if (value[0] === "'" && value.at(-1) === "'") {
+    const result = value.slice(1, -1);
+    validateTomlText(result, false);
+    return result;
+  }
   if (value[0] !== '"' || value.at(-1) !== '"') return undefined;
   return decodeBasicString(value.slice(1, -1));
 }
@@ -125,6 +133,7 @@ function decodeBasicString(value: string, multiline = false): string {
   for (let i = 0; i < value.length; i += 1) {
     if (value[i] !== "\\") {
       if (value[i] === '"' && !multiline) throw invalidPolicy();
+      if (isTomlControl(value.charCodeAt(i), multiline)) throw invalidPolicy();
       output += value[i];
       continue;
     }
@@ -137,6 +146,7 @@ function decodeBasicString(value: string, multiline = false): string {
       if (digits.length !== width || !/^[0-9a-fA-F]+$/.test(digits)) throw invalidPolicy();
       const code = Number.parseInt(digits, 16);
       if (!Number.isInteger(code) || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) throw invalidPolicy();
+      if (isTomlControl(code, multiline)) throw invalidPolicy();
       output += String.fromCodePoint(code);
       i += width;
     } else if (escape === "\n") {
@@ -146,6 +156,16 @@ function decodeBasicString(value: string, multiline = false): string {
     }
   }
   return output;
+}
+
+function isTomlControl(code: number, multiline: boolean): boolean {
+  return (code < 0x20 && code !== 0x09 && !(multiline && (code === 0x0a || code === 0x0d))) || code === 0x7f;
+}
+
+function validateTomlText(value: string, multiline: boolean): void {
+  for (const char of value) {
+    if (isTomlControl(char.codePointAt(0) ?? 0, multiline)) throw invalidPolicy();
+  }
 }
 
 function parseTomlValue(raw: string): string | number | string[] {
@@ -200,7 +220,9 @@ export function loadPolicy(rawPath: string): PolicyConfig {
   try {
     const path = rawPath.startsWith("/") ? rawPath : join(process.cwd(), rawPath);
     if (!statSync(path).isFile()) throw invalidPolicy();
-    const text = readFileSync(path, "utf8");
+    const bytes = readFileSync(path);
+    if (!isValidUtf8(bytes)) throw invalidPolicy();
+    const text = bytes.toString("utf8");
     const result: PolicyConfig = { optionalGlobs: [] };
     const seenKeys = new Set<string>();
     let section = "";

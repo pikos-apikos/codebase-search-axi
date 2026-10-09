@@ -174,7 +174,8 @@ export async function files(
     try {
       size = statSync(raw).size;
     } catch {
-      continue;
+      scanComplete = false;
+      break;
     }
     if (scan.maxBytes !== undefined && bytes + size > scan.maxBytes) {
       scanComplete = false;
@@ -371,7 +372,8 @@ export async function metrics(
     try {
       size = statSync(raw).size;
     } catch {
-      continue;
+      scanComplete = false;
+      break;
     }
     if (scan.maxBytes !== undefined && scanBytes + size > scan.maxBytes) { scanComplete = false; break; }
     const content = readFileSync(raw);
