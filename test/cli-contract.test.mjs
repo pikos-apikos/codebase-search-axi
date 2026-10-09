@@ -471,6 +471,35 @@ test("scan bounds stop discovery and report incomplete scans", async () => {
   }
 });
 
+test("scan byte bounds avoid content reads and files discovery survives EACCES", async () => {
+  const root = makeRoot();
+  const oversized = join(root, "oversized.txt");
+  try {
+    writeFileSync(oversized, Buffer.concat([Buffer.from("needle\n"), Buffer.alloc(2_097_152, 0x78)]));
+    const direct = execFileSync("rg", ["--no-config", "--files", "--", root], { encoding: "utf8" });
+    assert.match(direct, /oversized\.txt/);
+    for (const command of ["files", "search", "context", "count", "metrics"]) {
+      const trace = join(root, `${command}.trace`);
+      const args = command === "files" || command === "metrics"
+        ? [command, "--root", root, "--scan-max-bytes", "1"]
+        : [command, "needle", "--root", root, "--scan-max-bytes", "1"];
+      const proc = spawnSync("strace", ["-f", "-yy", "-e", "trace=read", "-o", trace, NODE, BIN, ...args, "--json"], {
+        encoding: "utf8",
+      });
+      assert.equal(proc.status, 0, `${command}: ${proc.stderr}`);
+      const traceText = readFileSync(trace, "utf8");
+      assert.doesNotMatch(traceText, /read\([^\n]*oversized\.txt/);
+    }
+    chmodSync(oversized, 0o000);
+    const unreadable = await runCli(["files", "--root", root, "--full"]);
+    assert.equal(unreadable.code, 0);
+    assert.ok(unreadable.data.files.includes("oversized.txt"));
+  } finally {
+    chmodSync(oversized, 0o644);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("explicit TOML policy is loaded, validated, and format aliases JSON", async () => {
   const root = makeRoot();
   const policy = join(root, "policy.toml");
