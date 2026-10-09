@@ -479,10 +479,11 @@ function isByteValue(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && typeof (value as { bytes?: unknown }).bytes === "string");
 }
 
-function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | undefined): void {
+function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | undefined, selectedFields: string[]): void {
   if (maxTextBytes === undefined) return;
   const collection = record.matches;
   if (!Array.isArray(collection)) return;
+  const exposesText = selectedFields.length === 0 || selectedFields.some((field) => ["text", "before", "after", "submatches"].includes(field));
   for (const item of collection) {
     if (!item || typeof item !== "object") continue;
     const entry = item as Record<string, unknown>;
@@ -519,7 +520,7 @@ function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | 
       });
     }
     entry.text_bytes = originalBytes;
-    if (truncated) {
+    if (truncated && exposesText) {
       entry.text_truncated = true;
       const complete = record.complete;
       if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
@@ -660,7 +661,7 @@ export async function main(): Promise<void> {
             "Scan interrupted; no complete results are available.",
           );
         }
-        applyTextBound(record, parsed.maxTextBytes);
+        applyTextBound(record, parsed.maxTextBytes, parsed.fields);
         const projected = projectFields(parsed.command, record, parsed.fields);
         applyOutputBound(projected, parsed.maxBytes, parsed.json);
         return parsed.json ? JSON.stringify(projected) : projected;

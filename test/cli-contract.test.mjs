@@ -383,6 +383,7 @@ test("display text and serialized byte bounds mark truncation", async () => {
     const projected = await runCli(["search", "needle", "--root", root, "--fields", "path", "--max-text-bytes", "1"]);
     assert.equal(projected.code, 0);
     assert.deepEqual(projected.data.matches[0], { path: "long.txt" });
+    assert.equal(projected.data.complete.display, true);
     const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "180"]);
     assert.equal(bytes.code, 0);
     assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 180);
@@ -527,15 +528,19 @@ test("CLI globs override policy globs while mandatory denies remain last", async
 test("bounded search, context, and count preserve non-UTF8 paths", async () => {
   const root = makeRoot();
   try {
-    writeFileSync(Buffer.concat([Buffer.from(root), Buffer.from([0x2f, 0x30, 0x2d, 0xff, 0x2e, 0x74, 0x78, 0x74])]), "needle\n");
+    const firstName = Buffer.from([0x30, 0x2d, 0xff, 0x2e, 0x74, 0x78, 0x74]);
+    const secondName = Buffer.from([0x31, 0x2d, 0xfe, 0x2e, 0x74, 0x78, 0x74]);
+    writeFileSync(Buffer.concat([Buffer.from(root), Buffer.from([0x2f]), firstName]), "needle\n");
+    writeFileSync(Buffer.concat([Buffer.from(root), Buffer.from([0x2f]), secondName]), "needle\n");
     for (const command of ["search", "context", "count"]) {
       const args = [command, ...(command === "files" ? [] : ["needle"]), "--root", root, "--scan-max-files", "1"];
       const result = await runCli(args);
       assert.equal(result.code, 0, command);
-      assert.equal(result.data.complete.scan, true, command);
+      assert.equal(result.data.complete.scan, false, command);
       const records = command === "count" ? result.data.counts : result.data.matches;
-      const nonUtf8Name = Buffer.from([0x30, 0x2d, 0xff, 0x2e, 0x74, 0x78, 0x74]).toString("base64");
-      assert.ok(records.some((item) => item.path?.bytes === nonUtf8Name), command);
+      assert.equal(records.length, 1, command);
+      const names = new Set([firstName.toString("base64"), secondName.toString("base64")]);
+      assert.ok(names.has(records[0].path?.bytes), command);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

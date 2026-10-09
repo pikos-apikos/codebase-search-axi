@@ -92,8 +92,9 @@ export interface ScanBounds {
 async function scanPaths(
   backend: RgBackend,
   scan: ScanBounds,
-): Promise<{ paths: string[] | undefined; complete: boolean }> {
+): Promise<{ paths: string[] | undefined; complete: boolean; allowed?: Set<string> }> {
   const paths: string[] = [];
+  const allowed = new Set<string>();
   let complete = true;
   let representable = true;
   let filesSeen = 0;
@@ -116,11 +117,18 @@ async function scanPaths(
     }
     filesSeen += 1;
     bytes += size;
+    allowed.add(raw.toString("base64"));
     if (isValidUtf8(raw)) paths.push(raw.toString("utf8"));
     else representable = false;
   }
-  if (!representable) return complete ? { paths: undefined, complete } : { paths: [], complete };
+  if (!representable) return { paths: undefined, complete, allowed };
   return { paths, complete };
+}
+
+function eventPathKey(data: Record<string, unknown>): string {
+  const path = data["path"] as ByteValue | undefined;
+  if (path === undefined) throw invalidResult();
+  return rgBytes(path).toString("base64");
 }
 
 function envelope(
@@ -206,10 +214,12 @@ export async function matches(
   const previous: Array<[number, Value]> = [];
   let following: MatchRecord[] = [];
   const emittedContext = new Set<string>();
+  let includePath = true;
   for await (const event of backend.events(pattern, before, after, selected.paths)) {
     const kind = event.type;
     if (kind === "begin") {
       const data = event.data as Record<string, unknown>;
+      includePath = selected.allowed === undefined || selected.allowed.has(eventPathKey(data));
       previous.length = 0;
       following = [];
       continue;
@@ -222,6 +232,7 @@ export async function matches(
     if (kind !== "match" && kind !== "context") {
       continue;
     }
+    if (!includePath) continue;
     const data = event.data as Record<string, unknown>;
     const lineBytes = rgBytes(data["lines"] as ByteValue);
     const line = data["line_number"] as number;
@@ -310,12 +321,15 @@ export async function count(
     };
   }
   let boundedComplete = scanComplete;
+  let includePath = true;
   for await (const event of backend.events(pattern, 0, 0, selected.paths)) {
     if (event.type === "begin") {
       const data = event.data as Record<string, unknown>;
+      includePath = selected.allowed === undefined || selected.allowed.has(eventPathKey(data));
       continue;
     }
     if (event.type !== "match") continue;
+    if (!includePath) continue;
     const data = event.data as Record<string, unknown>;
     const path = eventPath(data, root);
     const key = JSON.stringify(path);
