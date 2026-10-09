@@ -389,6 +389,9 @@ test("display text and serialized byte bounds mark truncation", async () => {
     const tooSmall = await runCli(["search", "needle", "--root", root, "--max-bytes", "1"]);
     assert.equal(tooSmall.code, 1);
     assert.equal(tooSmall.data.error, "output_bound");
+    const hugeBound = await runCli(["search", "needle", "--root", root, "--max-bytes", "999999999999999999999999999999999999999999"]);
+    assert.equal(hugeBound.code, 2);
+    assert.equal(hugeBound.data.error, "invalid_request");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -461,6 +464,11 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
     assert.equal(files.code, 0);
     assert.deepEqual([...files.data.files].sort(), ["policy.toml", "visible.txt"]);
     assert.equal(files.data.bounded, false);
+    write(root, "optional\n/line.txt", "needle\n");
+    writeFileSync(join(root, "bad.toml"), 'optional_globs = ["""\n!**/optional\n/**\n"""]\n');
+    const multilineGlob = await runCli(["files", "--root", root, "--policy", join(root, "bad.toml"), "--full"]);
+    assert.equal(multilineGlob.code, 0);
+    assert.equal(multilineGlob.data.files.includes("optional\n/line.txt"), false);
     const malformed = join(root, "bad.toml");
     writeFileSync(malformed, "not valid = [");
     const bad = await runCli(["files", "--root", root, "--policy", malformed]);

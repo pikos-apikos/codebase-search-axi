@@ -248,9 +248,10 @@ export function loadPolicy(rawPath: string): PolicyConfig {
       while (rawValue.startsWith("[") && !completeTomlArray(rawValue)) {
         index += 1;
         if (index >= lines.length) throw invalidPolicy();
+        const continuedQuote = multilineQuote;
         const continuation = stripTomlComment(lines[index], multilineQuote);
         multilineQuote = continuation.quote;
-        rawValue += ` ${continuation.text.trim()}`;
+        rawValue += `${continuedQuote ? "\n" : " "}${continuedQuote ? continuation.text : continuation.text.trim()}`;
       }
       const value = parseTomlValue(rawValue);
       if (seenKeys.has(key)) throw invalidPolicy();

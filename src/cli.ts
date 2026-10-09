@@ -144,7 +144,11 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     if (!/^-?\d+$/.test(value)) {
       throw requestError(`${flag} must be an integer`);
     }
-    return Number.parseInt(value, 10);
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed)) {
+      throw requestError(`${flag} must be a safe integer`);
+    }
+    return parsed;
   };
 
   let i = 0;
