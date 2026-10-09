@@ -489,13 +489,16 @@ function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | 
   if (maxTextBytes === undefined) return;
   const collection = record.matches;
   if (!Array.isArray(collection)) return;
-  const exposesText = selectedFields.length === 0 || selectedFields.some((field) => ["text", "before", "after", "submatches"].includes(field));
+  const exposesAll = selectedFields.length === 0;
+  const exposes = (field: string) => exposesAll || selectedFields.includes(field);
+  const exposesText = exposes("text") || exposes("before") || exposes("after") || exposes("submatches");
   for (const item of collection) {
     if (!item || typeof item !== "object") continue;
     const entry = item as Record<string, unknown>;
-    const fields: string[] = ["text"];
-    if (Array.isArray(entry.before)) fields.push("before");
-    if (Array.isArray(entry.after)) fields.push("after");
+    const fields: string[] = [];
+    if (exposes("text")) fields.push("text");
+    if (exposes("before") && Array.isArray(entry.before)) fields.push("before");
+    if (exposes("after") && Array.isArray(entry.after)) fields.push("after");
     let used = 0;
     let originalBytes = 0;
     let truncated = false;
@@ -517,7 +520,7 @@ function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | 
       if (Array.isArray(value)) entry[field] = value.map(trim);
       else if (value !== undefined) entry[field] = trim(value);
     }
-    if (Array.isArray(entry.submatches)) {
+    if (exposes("submatches") && Array.isArray(entry.submatches)) {
       entry.submatches = entry.submatches.map((sub) => {
         if (!sub || typeof sub !== "object") return sub;
         const copy = { ...(sub as Record<string, unknown>) };

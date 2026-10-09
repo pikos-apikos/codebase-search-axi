@@ -413,6 +413,23 @@ test("text bounds keep UTF-8 prefixes valid and selected metadata visible", asyn
   }
 });
 
+test("text bounds budget only selected text fields", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "submatches.txt", "needle\n");
+    const { data, code } = await runCli([
+      "search", "needle", "--root", root, "--max-text-bytes", "1", "--fields", "submatches",
+    ]);
+    assert.equal(code, 0);
+    assert.equal(data.matches[0].submatches[0].match, "n");
+    assert.equal(data.matches[0].text_bytes > 1, true);
+    assert.equal(data.matches[0].text_truncated, true);
+    assert.equal(data.complete.display, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("text bounds preserve bounded non-UTF-8 bytes", async () => {
   const root = makeRoot();
   try {

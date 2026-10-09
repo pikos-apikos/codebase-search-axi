@@ -142,7 +142,7 @@ export class RgBackend {
   }
 
   /** Absolute-then-relative args shared by every invocation. */
-  private argsFor(options: string[], paths: readonly (string | Buffer)[] = [this.root.searchPath]): (string | Buffer)[] {
+  private argsFor(options: string[], paths: readonly string[] = [this.root.searchPath]): string[] {
     return [...this.baseArgs, ...options, "--", ...paths];
   }
 
@@ -235,7 +235,7 @@ export class RgBackend {
    * lines. Verifies the exit code and surfaces a structured error carrying
    * the bounded diagnostic prefix on failure.
    */
-  private async *lines(args: readonly (string | Buffer)[], separator: number): AsyncGenerator<Buffer> {
+  private async *lines(args: readonly string[], separator: number): AsyncGenerator<Buffer> {
     if (this.interrupted) {
       throw new RgError(
         "ripgrep_failed",
@@ -263,7 +263,7 @@ export class RgBackend {
     try {
       scratchDir = makeScratchDir();
       stderrFd = openSync(join(scratchDir, "stderr"), "w");
-      child = spawn(this.rgPath, args as readonly string[], {
+      child = spawn(this.rgPath, args, {
         stdio: ["ignore", "pipe", stderrFd],
       });
       this.activeChild = child;
