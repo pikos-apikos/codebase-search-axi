@@ -372,7 +372,7 @@ export function resolveRoot(rawRoot: Buffer): ResolvedRoot {
   }
   let canonical: Buffer;
   try {
-    canonical = realpathSync(abs, { encoding: "buffer" });
+    canonical = realpathSync.native(abs, { encoding: "buffer" });
   } catch {
     throw invalidRoot();
   }
