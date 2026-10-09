@@ -12,17 +12,20 @@ import {
   accessSync,
   closeSync,
   constants,
+  mkdtempSync,
   mkdirSync,
   openSync,
   readSync,
   rmSync,
   statSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { AxiError } from "axi-sdk-js";
 import { MANDATORY_GLOBS, OPTIONAL_GLOBS, type ResolvedRoot } from "./policy.js";
+import { isValidUtf8 } from "./argv.js";
 
 /** A structured backend/scan error with an optional raw diagnostic payload. */
 export class RgError extends AxiError {
@@ -139,7 +142,7 @@ export class RgBackend {
   }
 
   /** Absolute-then-relative args shared by every invocation. */
-  private argsFor(options: string[], paths: string[] = [this.root.searchPath]): string[] {
+  private argsFor(options: string[], paths: readonly (string | Buffer)[] = [this.root.searchPath]): (string | Buffer)[] {
     return [...this.baseArgs, ...options, "--", ...paths];
   }
 
@@ -157,13 +160,25 @@ export class RgBackend {
    * value of `-e`; the root follows `--`. A successful scan requires both a
    * native successful exit and the rg summary event.
    */
-  async *events(pattern: Buffer, before = 0, after = 0, paths?: string[]): AsyncGenerator<RgEvent> {
+  async *events(pattern: Buffer, before = 0, after = 0, paths?: readonly (string | Buffer)[]): AsyncGenerator<RgEvent> {
     if (pattern.includes(0)) {
       throw new RgError(
         "invalid_pattern",
         "Check the search regular expression.",
       );
     }
+    const pathMap = new Map<string, Buffer>();
+    let pathDir: string | undefined;
+    const searchPaths = (paths ?? [this.root.searchPath]).map((path, index) => {
+      if (typeof path === "string" || isValidUtf8(path)) {
+        return path.toString("utf8");
+      }
+      pathDir ??= mkdtempSync(join(tmpdir(), "codebase-search-paths-"));
+      const link = join(pathDir, String(index));
+      symlinkSync(path, link);
+      pathMap.set(link, path);
+      return link;
+    });
     const args = this.argsFor([
       "--json",
       "--line-number",
@@ -174,31 +189,38 @@ export class RgBackend {
       String(after),
       "-e",
       pattern.toString("utf-8"),
-    ], paths);
+    ], searchPaths);
     let summary = false;
-    for await (const raw of this.lines(args, 0x0a)) {
-      let event: unknown;
-      try {
-        event = JSON.parse(raw.toString("utf-8"));
-      } catch {
-        throw new RgError(
-          "ripgrep_failed",
-          "The search process returned an invalid event.",
-        );
+    try {
+      for await (const raw of this.lines(args, 0x0a)) {
+        let event: unknown;
+        try {
+          event = JSON.parse(raw.toString("utf-8"));
+        } catch {
+          throw new RgError(
+            "ripgrep_failed",
+            "The search process returned an invalid event.",
+          );
+        }
+        if (
+          typeof event !== "object" ||
+          event === null ||
+          typeof (event as RgEvent).type !== "string"
+        ) {
+          throw new RgError(
+            "ripgrep_failed",
+            "The search process returned an invalid event.",
+          );
+        }
+        const typed = event as RgEvent;
+        const path = typed.data?.["path"] as { text?: string } | undefined;
+        const original = path?.text === undefined ? undefined : pathMap.get(path.text);
+        if (original !== undefined) typed.data = { ...typed.data, path: { bytes: original.toString("base64") } };
+        summary = summary || typed.type === "summary";
+        yield typed;
       }
-      if (
-        typeof event !== "object" ||
-        event === null ||
-        typeof (event as RgEvent).type !== "string"
-      ) {
-        throw new RgError(
-          "ripgrep_failed",
-          "The search process returned an invalid event.",
-        );
-      }
-      const typed = event as RgEvent;
-      summary = summary || typed.type === "summary";
-      yield typed;
+    } finally {
+      if (pathDir !== undefined) rmSync(pathDir, { recursive: true, force: true });
     }
     if (!summary) {
       throw new RgError(
@@ -213,7 +235,7 @@ export class RgBackend {
    * lines. Verifies the exit code and surfaces a structured error carrying
    * the bounded diagnostic prefix on failure.
    */
-  private async *lines(args: string[], separator: number): AsyncGenerator<Buffer> {
+  private async *lines(args: readonly (string | Buffer)[], separator: number): AsyncGenerator<Buffer> {
     if (this.interrupted) {
       throw new RgError(
         "ripgrep_failed",
@@ -241,7 +263,7 @@ export class RgBackend {
     try {
       scratchDir = makeScratchDir();
       stderrFd = openSync(join(scratchDir, "stderr"), "w");
-      child = spawn(this.rgPath, args, {
+      child = spawn(this.rgPath, args as readonly string[], {
         stdio: ["ignore", "pipe", stderrFd],
       });
       this.activeChild = child;

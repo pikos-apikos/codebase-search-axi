@@ -479,6 +479,10 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
     const duplicate = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(duplicate.code, 1);
     assert.equal(duplicate.data.error, "invalid_policy");
+    writeFileSync(malformed, '[policy]\nmax_results = 1\n');
+    const nested = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(nested.code, 1);
+    assert.equal(nested.data.error, "invalid_policy");
     writeFileSync(malformed, 'optional_globs = [\n  """!**/#cache/**""",\n]\n');
     const multiline = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(multiline.code, 0);

@@ -6,7 +6,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { RgError, type RgBackend } from "./backend.js";
 import { toRootRelative, type ResolvedRoot } from "./policy.js";
-import { isValidUtf8 } from "./argv.js";
 
 /** A fidelity-preserving value: a UTF-8 string or lossless padded base64. */
 export type Value = string | { bytes: string };
@@ -92,11 +91,9 @@ export interface ScanBounds {
 async function scanPaths(
   backend: RgBackend,
   scan: ScanBounds,
-): Promise<{ paths: string[] | undefined; complete: boolean; allowed?: Set<string> }> {
-  const paths: string[] = [];
-  const allowed = new Set<string>();
+): Promise<{ paths: (string | Buffer)[]; complete: boolean }> {
+  const paths: (string | Buffer)[] = [];
   let complete = true;
-  let representable = true;
   let filesSeen = 0;
   let bytes = 0;
   for await (const raw of backend.files()) {
@@ -117,18 +114,9 @@ async function scanPaths(
     }
     filesSeen += 1;
     bytes += size;
-    allowed.add(raw.toString("base64"));
-    if (isValidUtf8(raw)) paths.push(raw.toString("utf8"));
-    else representable = false;
+    paths.push(raw);
   }
-  if (!representable) return { paths: undefined, complete, allowed };
   return { paths, complete };
-}
-
-function eventPathKey(data: Record<string, unknown>): string {
-  const path = data["path"] as ByteValue | undefined;
-  if (path === undefined) throw invalidResult();
-  return rgBytes(path).toString("base64");
 }
 
 function envelope(
@@ -210,16 +198,13 @@ export async function matches(
   let total = 0;
   const selected = await scanPaths(backend, scan);
   let scanComplete = selected.complete;
-  if (selected.paths !== undefined && selected.paths.length === 0) return envelope(command, "matches", values, total, limit, scanComplete);
+  if (selected.paths.length === 0) return envelope(command, "matches", values, total, limit, scanComplete);
   const previous: Array<[number, Value]> = [];
   let following: MatchRecord[] = [];
   const emittedContext = new Set<string>();
-  let includePath = true;
   for await (const event of backend.events(pattern, before, after, selected.paths)) {
     const kind = event.type;
     if (kind === "begin") {
-      const data = event.data as Record<string, unknown>;
-      includePath = selected.allowed === undefined || selected.allowed.has(eventPathKey(data));
       previous.length = 0;
       following = [];
       continue;
@@ -232,7 +217,6 @@ export async function matches(
     if (kind !== "match" && kind !== "context") {
       continue;
     }
-    if (!includePath) continue;
     const data = event.data as Record<string, unknown>;
     const lineBytes = rgBytes(data["lines"] as ByteValue);
     const line = data["line_number"] as number;
@@ -306,7 +290,7 @@ export async function count(
   let total = 0;
   const selected = await scanPaths(backend, scan);
   const scanComplete = selected.complete;
-  if (selected.paths !== undefined && selected.paths.length === 0) {
+  if (selected.paths.length === 0) {
     return {
       status: "ok",
       command: "count",
@@ -321,15 +305,11 @@ export async function count(
     };
   }
   let boundedComplete = scanComplete;
-  let includePath = true;
   for await (const event of backend.events(pattern, 0, 0, selected.paths)) {
     if (event.type === "begin") {
-      const data = event.data as Record<string, unknown>;
-      includePath = selected.allowed === undefined || selected.allowed.has(eventPathKey(data));
       continue;
     }
     if (event.type !== "match") continue;
-    if (!includePath) continue;
     const data = event.data as Record<string, unknown>;
     const path = eventPath(data, root);
     const key = JSON.stringify(path);

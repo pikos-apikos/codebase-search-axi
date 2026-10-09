@@ -59,8 +59,8 @@ export function loadPolicy(rawPath: string): PolicyConfig {
     if (!isValidUtf8(bytes)) throw invalidPolicy();
     const text = bytes.toString("utf8");
     const parsed = parseToml(text) as Record<string, unknown>;
-    const table = parsed.policy === undefined ? parsed : parsed.policy;
-    if (!isRecord(table) || (parsed.policy !== undefined && Object.keys(parsed).some((key) => key !== "policy"))) {
+    const table = parsed;
+    if (!isRecord(table)) {
       throw invalidPolicy();
     }
     const result: PolicyConfig = { optionalGlobs: [] };
