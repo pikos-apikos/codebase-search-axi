@@ -427,6 +427,7 @@ test("scan bounds stop discovery and report incomplete scans", async () => {
   try {
     write(root, "one.txt", "needle\n");
     write(root, "two.txt", "needle\n");
+    write(root, "nonmatching.txt", "other\n");
     const { data, code } = await runCli(["search", "needle", "--root", root, "--full", "--scan-max-files", "1"]);
     assert.equal(code, 2);
     assert.equal(data.error, "invalid_command");
@@ -438,6 +439,12 @@ test("scan bounds stop discovery and report incomplete scans", async () => {
     assert.equal(count.code, 0);
     assert.equal(count.data.complete.scan, false);
     assert.equal("total" in count.data, false);
+    const nonmatching = await runCli(["search", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(nonmatching.code, 0);
+    assert.equal(nonmatching.data.complete.scan, false);
+    const nonmatchingCount = await runCli(["count", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(nonmatchingCount.code, 0);
+    assert.equal(nonmatchingCount.data.complete.scan, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -466,6 +473,9 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
     writeFileSync(malformed, 'optional_globs = [\n  """!**/#cache/**""",\n]\n');
     const multiline = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(multiline.code, 0);
+    writeFileSync(malformed, 'optional_globs = ["""!**/\"quoted\"/**"""]\n');
+    const quotedMultiline = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(quotedMultiline.code, 0);
     writeFileSync(malformed, 'optional_globs = ["foo]"]\n');
     const closingBracket = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(closingBracket.code, 0);

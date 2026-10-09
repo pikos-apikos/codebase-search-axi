@@ -114,17 +114,17 @@ function parseTomlString(value: string): string | undefined {
   if (value.length < 2) return undefined;
   const triple = value.slice(0, 3);
   if (triple === "'''" && value.endsWith("'''")) return value.slice(3, -3).replace(/^\r?\n/, "");
-  if (triple === '"""' && value.endsWith('"""')) return decodeBasicString(value.slice(3, -3).replace(/^\r?\n/, ""));
+  if (triple === '"""' && value.endsWith('"""')) return decodeBasicString(value.slice(3, -3).replace(/^\r?\n/, ""), true);
   if (value[0] === "'" && value.at(-1) === "'") return value.slice(1, -1);
   if (value[0] !== '"' || value.at(-1) !== '"') return undefined;
   return decodeBasicString(value.slice(1, -1));
 }
 
-function decodeBasicString(value: string): string {
+function decodeBasicString(value: string, multiline = false): string {
   let output = "";
   for (let i = 0; i < value.length; i += 1) {
     if (value[i] !== "\\") {
-      if (value[i] === '"') throw invalidPolicy();
+      if (value[i] === '"' && !multiline) throw invalidPolicy();
       output += value[i];
       continue;
     }

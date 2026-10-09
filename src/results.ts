@@ -6,6 +6,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { RgError, type RgBackend } from "./backend.js";
 import { toRootRelative, type ResolvedRoot } from "./policy.js";
+import { isValidUtf8 } from "./argv.js";
 
 /** A fidelity-preserving value: a UTF-8 string or lossless padded base64. */
 export type Value = string | { bytes: string };
@@ -92,28 +93,34 @@ async function scanPaths(
   backend: RgBackend,
   scan: ScanBounds,
 ): Promise<{ paths: string[] | undefined; complete: boolean }> {
-  // Bounds are enforced while consuming rg's event stream so raw, non-UTF8
-  // paths remain eligible. Pre-discovery cannot pass those names through
-  // Node's string argv API without losing bytes.
-  void backend;
-  void scan;
-  return { paths: undefined, complete: true };
-}
-
-function scanPathKey(data: Record<string, unknown>): string {
-  const path = data["path"] as ByteValue | undefined;
-  if (path === undefined) throw invalidResult();
-  return JSON.stringify(encoded(rgBytes(path)));
-}
-
-function scanPathSize(data: Record<string, unknown>): number {
-  const path = data["path"] as ByteValue | undefined;
-  if (path === undefined) throw invalidResult();
-  try {
-    return statSync(rgBytes(path)).size;
-  } catch {
-    return 0;
+  const paths: string[] = [];
+  let complete = true;
+  let representable = true;
+  let filesSeen = 0;
+  let bytes = 0;
+  for await (const raw of backend.files()) {
+    let size: number;
+    try {
+      size = statSync(raw).size;
+    } catch {
+      complete = false;
+      break;
+    }
+    if (scan.maxFiles !== undefined && filesSeen >= scan.maxFiles) {
+      complete = false;
+      break;
+    }
+    if (scan.maxBytes !== undefined && bytes + size > scan.maxBytes) {
+      complete = false;
+      break;
+    }
+    filesSeen += 1;
+    bytes += size;
+    if (isValidUtf8(raw)) paths.push(raw.toString("utf8"));
+    else representable = false;
   }
+  if (!representable) return complete ? { paths: undefined, complete } : { paths: [], complete };
+  return { paths, complete };
 }
 
 function envelope(
@@ -198,27 +205,10 @@ export async function matches(
   const previous: Array<[number, Value]> = [];
   let following: MatchRecord[] = [];
   const emittedContext = new Set<string>();
-  const seenScanPaths = new Set<string>();
-  let scanBytes = 0;
-
   for await (const event of backend.events(pattern, before, after, selected.paths)) {
     const kind = event.type;
     if (kind === "begin") {
       const data = event.data as Record<string, unknown>;
-      const key = scanPathKey(data);
-      if (!seenScanPaths.has(key)) {
-        if (scan.maxFiles !== undefined && seenScanPaths.size >= scan.maxFiles) {
-          scanComplete = false;
-          break;
-        }
-        const size = scanPathSize(data);
-        if (scan.maxBytes !== undefined && scanBytes + size > scan.maxBytes) {
-          scanComplete = false;
-          break;
-        }
-        seenScanPaths.add(key);
-        scanBytes += size;
-      }
       previous.length = 0;
       following = [];
       continue;
@@ -318,26 +308,10 @@ export async function count(
       ...(scanComplete ? {} : { help: "Use --full or raise scan bounds to scan all results within the existing exclusions." }),
     };
   }
-  const seenScanPaths = new Set<string>();
-  let scanBytes = 0;
   let boundedComplete = scanComplete;
   for await (const event of backend.events(pattern, 0, 0, selected.paths)) {
     if (event.type === "begin") {
       const data = event.data as Record<string, unknown>;
-      const key = scanPathKey(data);
-      if (!seenScanPaths.has(key)) {
-        if (scan.maxFiles !== undefined && seenScanPaths.size >= scan.maxFiles) {
-          boundedComplete = false;
-          break;
-        }
-        const size = scanPathSize(data);
-        if (scan.maxBytes !== undefined && scanBytes + size > scan.maxBytes) {
-          boundedComplete = false;
-          break;
-        }
-        seenScanPaths.add(key);
-        scanBytes += size;
-      }
       continue;
     }
     if (event.type !== "match") continue;
