@@ -1,60 +1,115 @@
 # codebase-search-axi
 
-A bounded, read-only codebase search CLI for agents, built around [ripgrep](https://github.com/burntsushi/ripgrep) and designed with [AXI](https://github.com/kunchenguid/axi) (Agent eXperience Interface) principles.
+A small, read-only [ripgrep](https://github.com/BurntSushi/ripgrep) wrapper for agents. One TypeScript/Node package invokes `rg` directly and uses the official [axi-sdk-js](https://github.com/kunchenguid/axi/tree/main/packages/axi-sdk-js) runtime for dispatch, TOON, errors, version discovery, and opt-in integrations.
 
-**Target architecture (settled):** see the [v1 contract's scope and ownership boundaries](docs/v1-contract.md#scope-and-baseline).
+Use it for file discovery, pattern search, context, counts, and secondary repository metrics. Matching remains ripgrep's responsibility. The wrapper supplies policy, finite display limits, and explicit scan/display completeness.
 
-**Current implementation:** Node.js / TypeScript, dispatching through [`axi-sdk-js`](https://www.npmjs.com/package/axi-sdk-js) and driving `rg` directly (no Python bridge).
+**Release status:** `0.1.0` is an unpublished candidate. License, source provenance confirmation, visibility, and publication await the decision in [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9). The package declares `UNLICENSED`. AXI catalog admission is separate; no admission or measured performance improvement is claimed.
 
-It provides compact TOON output by default, with explicit JSON output for file discovery, pattern search, surrounding context, per-file counts, and basic repository metrics.
-Common generated directories and sensitive files are excluded by default.
+## Requirements and installation
 
-The v1 search, policy, output, and component contract is documented in
-[`docs/v1-contract.md`](docs/v1-contract.md).
+- Node.js >= 20, npm, and `rg` on `PATH`.
+- PCRE2 matching requires a PCRE2-enabled ripgrep build.
+- Linux is the verified release environment. Other platforms and the full Node version range have not received release qualification. Byte-exact non-UTF8 argument recovery uses Linux `/proc/self/cmdline`; other platforms preserve valid UTF-8 arguments only.
+
+From an authorized checkout:
+
+```bash
+npm ci
+npm run build
+bin/codebase-search --version
+bin/codebase-search files --root .
+```
+
+Prepare a local tarball:
+
+```bash
+mkdir -p artifacts
+npm pack --pack-destination artifacts
+```
+
+In a separate disposable directory, install that tarball by absolute path:
+
+```bash
+npm install --ignore-scripts /absolute/path/codebase-search-axi-0.1.0.tgz
+npx --no-install codebase-search --version
+npx --no-install codebase-search files --root /absolute/path/to/project
+```
+
+The tarball contains compiled JavaScript, the launcher, portable skill, documentation, and dependency notices. Execution needs neither the source checkout, TypeScript compiler, Python, nor an agent runtime. npm installs dependencies; install ripgrep separately. There is no published registry installation command yet.
 
 ## Usage
+
+For a tarball installation, replace the checkout launcher below with `npx --no-install codebase-search`.
 
 ```bash
 bin/codebase-search
 bin/codebase-search files --root .
-bin/codebase-search search 'pattern' --root . --max-results 25
+bin/codebase-search search 'TODO' --root . --max-results 25 --json
+bin/codebase-search search 'literal.text' --root . --fixed-strings
 bin/codebase-search context 'pattern' --root . --before 2 --after 2
 bin/codebase-search count 'pattern' --root . --full --json
 bin/codebase-search metrics --root .
+bin/codebase-search search --help
 ```
 
-Run `bin/codebase-search --help` for the complete interface.
+TOON is the default; `--json` and `--format json` select JSON. `--fields FIELD,...` projects records while retaining required completeness metadata. Empty results succeed. Usage errors exit `2`; execution/dependency errors exit `1`, with structured stdout records. Bare invocation returns orientation without scanning; bare `-v`, `-V`, and `--version` return the version without invoking ripgrep.
 
-## Requirements
+## Bounds and completeness
 
-- Node.js >= 20 (TypeScript build uses `tsc`)
-- [ripgrep](https://github.com/burntsushi/ripgrep) (`rg`)
+Default display limits are 50 records, 4,096 decoded content bytes per record, and 65,536 serialized output bytes. Display truncation does **not** automatically stop the backend. Optional `--scan-max-files` and `--scan-max-bytes` bound the scan itself.
 
-## Setup
+Read `complete.scan` and `complete.display` independently. An aggregate `total` appears only when complete for the operation. Bounded `metrics` reports observations (`files_seen`, `bytes_seen`, `lines_seen`) rather than totals.
+
+`--full` removes bounds and optional directory exclusions, conflicts with explicit bounds, and retains mandatory denies. Native ignore rules still apply unless explicitly broadened. `--all` is removed and returns a migration hint.
+
+UTF-8 values are strings; non-UTF8 paths/content use `{ "bytes": "BASE64" }`. Columns are one-based byte positions; submatch offsets refer to untruncated ripgrep event data. See the [v1 contract](docs/v1-contract.md) for schemas, multiline counts, context deduplication, and exact byte rules.
+
+## File policy
+
+Mandatory exclusions cover `.git` trees, `.env*`, `id_rsa*`, and `.pem`, `.key`, `.crt`, `.cer`, `.p12`, `.pfx` files. Positive globs, `--full`, `--hidden`, and `--no-ignore` cannot override them.
+
+Optional defaults exclude `node_modules`, `vendor`, `build`, `dist`, `target`, `coverage`, `.venv`, `venv`, and `__pycache__`. Explicit TOML policy controls optional globs and bound defaults:
+
+```toml
+optional_globs = ["!**/private-notes/**"]
+max_results = 20
+max_text_bytes = 2048
+max_bytes = 32768
+scan_max_files = 1000
+scan_max_bytes = 10485760
+```
 
 ```bash
-npm install
-npm run build
+bin/codebase-search search 'pattern' --root . --policy /absolute/path/policy.toml --json
 ```
 
-`bin/codebase-search` is a Node launcher; it requires the compiled `dist/` output from `npm run build`.
+Policies load only through explicit `--policy`. Unknown keys, malformed TOML, duplicate keys, and unsupported values fail. CLI bounds override policy defaults. Roots are canonicalized; ordinary file/directory symlinks are not followed. This is path policy for this wrapper's commands; the agent runtime owns access through independent tools.
 
-## AXI conformance
+## Optional AXI integration
 
-This project follows the reference-AXI pattern set by tools such as [gh-axi](https://github.com/kunchenguid/gh-axi): a thin, non-interactive wrapper over an existing CLI (`rg`) that gives agents bounded, machine-readable results, structured error records with nonzero exit codes, a default limit with an explicit `--full` escape hatch, an explicit `--json` interface, a skill under `.agents/skills/`, and tests that exercise the public CLI contract.
+The portable skill is `skills/codebase-search/SKILL.md`; its checkout mirror is `.agents/skills/codebase-search/SKILL.md`. Searches do not install hooks or contact a registry.
 
-Deliberate divergences from `gh-axi`, kept because they fit a small local-search tool rather than a networked service adapter:
-
-- JSON is available through the explicit `--json` selector; TOON remains the default (principle 1).
-- Bare invocation returns compact workspace orientation without scanning the repository (principle 8).
-- `--fields FIELD,...` projects result records consistently in TOON and JSON while retaining required envelope metadata.
-- Output records carry no next-step suggestions (principle 9).
-- No published npm package or release pipeline; use the repository directly via `bin/codebase-search` (after `npm install && npm run build`).
-
-## Test
+Hook setup requires an explicit isolated home. Personal account homes (including aliases) and project scope are rejected. For a disposable integration check:
 
 ```bash
-tests/codebase-search.test.sh
+integration_home=$(mktemp -d)
+bin/codebase-search setup hooks status --home "$integration_home" --json
+bin/codebase-search setup hooks install --home "$integration_home" --json
+bin/codebase-search setup hooks uninstall --home "$integration_home" --json
 ```
 
-The entry point builds the TypeScript CLI (`npm run build`) and runs the Node test suite (`node --test`), covering the public CLI contract and the rg adapter fidelity regressions.
+SDK `update` and `update --check` are separate, explicit maintenance commands that can contact a registry. They do not imply this candidate is published; use the candidate installation instructions above.
+
+## Verification and evidence
+
+```bash
+npm ci
+bash tests/codebase-search.test.sh
+npm run check:skill
+npm run package:check
+```
+
+The public suite builds TypeScript and checks search, policy, fidelity, bounds, errors, and SDK integration. Package checks pack and install outside the checkout, then exercise the executable and isolated hook lifecycle. One read-bound regression requires working `strace`/`ptrace`; verification records environment restrictions explicitly.
+
+See [CHANGELOG.md](CHANGELOG.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [release readiness](docs/release-readiness.md). [Issue #8](https://github.com/pikos-apikos/codebase-search-axi/issues/8) records evaluation evidence. Timing is deferred; no general token or speed reduction is claimed.
