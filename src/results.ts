@@ -3,7 +3,7 @@
  * metrics, preserve byte fidelity, enforce display limits truthfully, and
  * calculate completeness. Never reparses patterns and never launches rg.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { RgError, type RgBackend } from "./backend.js";
 import { toRootRelative, type ResolvedRoot } from "./policy.js";
 
@@ -83,12 +83,49 @@ function contextKey(path: Value, line: number): string {
   return JSON.stringify([path, line]);
 }
 
+export interface ScanBounds {
+  maxFiles?: number;
+  maxBytes?: number;
+}
+
+async function scanPaths(
+  backend: RgBackend,
+  scan: ScanBounds,
+): Promise<{ paths: (string | Buffer)[]; complete: boolean }> {
+  const paths: (string | Buffer)[] = [];
+  let complete = true;
+  let filesSeen = 0;
+  let bytes = 0;
+  for await (const raw of backend.files()) {
+    let size: number;
+    try {
+      size = statSync(raw).size;
+    } catch {
+      complete = false;
+      break;
+    }
+    if (scan.maxFiles !== undefined && filesSeen >= scan.maxFiles) {
+      complete = false;
+      break;
+    }
+    if (scan.maxBytes !== undefined && bytes + size > scan.maxBytes) {
+      complete = false;
+      break;
+    }
+    filesSeen += 1;
+    bytes += size;
+    paths.push(raw);
+  }
+  return { paths, complete };
+}
+
 function envelope(
   command: string,
   key: string,
   values: unknown[],
   total: number,
   limit: number | null,
+  scanComplete = true,
 ): Record<string, unknown> {
   const display = values.length === total;
   const record: Record<string, unknown> = {
@@ -97,9 +134,9 @@ function envelope(
     [key]: values,
     count: values.length,
     returned: values.length,
-    total,
+    ...(scanComplete ? { total } : {}),
     bounded: limit !== null,
-    complete: { scan: true, display },
+    complete: { scan: scanComplete, display: scanComplete && display },
   };
   if (!display) {
     record.help = "Use --full to return all results within the existing exclusions.";
@@ -118,16 +155,33 @@ export async function files(
   backend: RgBackend,
   root: ResolvedRoot,
   limit: number | null,
+  scan: ScanBounds = {},
 ): Promise<Record<string, unknown>> {
   const values: Value[] = [];
   let total = 0;
+  let bytes = 0;
+  let scanComplete = true;
   for await (const raw of backend.files()) {
-    total += 1;
-    if (limit === null || values.length < limit) {
-      values.push(relativePath(raw, root));
+    if (scan.maxFiles !== undefined && total >= scan.maxFiles) {
+      scanComplete = false;
+      break;
     }
+    let size: number;
+    try {
+      size = statSync(raw).size;
+    } catch {
+      scanComplete = false;
+      break;
+    }
+    if (scan.maxBytes !== undefined && bytes + size > scan.maxBytes) {
+      scanComplete = false;
+      break;
+    }
+    bytes += size;
+    total += 1;
+    if (limit === null || values.length < limit) values.push(relativePath(raw, root));
   }
-  return envelope("files", "files", values, total, limit);
+  return envelope("files", "files", values, total, limit, scanComplete);
 }
 
 export async function matches(
@@ -138,16 +192,34 @@ export async function matches(
   limit: number | null,
   before = 0,
   after = 0,
+  scan: ScanBounds = {},
 ): Promise<Record<string, unknown>> {
   const values: MatchRecord[] = [];
   let total = 0;
+  const selected = await scanPaths(backend, scan);
+  let scanComplete = selected.complete;
+  if (selected.paths.length === 0) return envelope(command, "matches", values, total, limit, scanComplete);
   const previous: Array<[number, Value]> = [];
   let following: MatchRecord[] = [];
   const emittedContext = new Set<string>();
-
-  for await (const event of backend.events(pattern, before, after)) {
+  let currentValueStart = 0;
+  let currentMatchCount = 0;
+  for await (const event of backend.events(pattern, before, after, selected.paths)) {
     const kind = event.type;
-    if (kind === "begin" || kind === "end") {
+    if (kind === "begin") {
+      currentValueStart = values.length;
+      currentMatchCount = 0;
+      previous.length = 0;
+      following = [];
+      continue;
+    }
+    if (kind === "end") {
+      const data = event.data as Record<string, unknown>;
+      if (data["binary_offset"] !== null && data["binary_offset"] !== undefined) {
+        values.splice(currentValueStart);
+        total -= currentMatchCount;
+      }
+      currentMatchCount = 0;
       previous.length = 0;
       following = [];
       continue;
@@ -156,6 +228,7 @@ export async function matches(
       continue;
     }
     const data = event.data as Record<string, unknown>;
+    const lineBytes = rgBytes(data["lines"] as ByteValue);
     const line = data["line_number"] as number;
     const text = encoded(rgBytes(data["lines"] as ByteValue));
     following = following.filter((item) => line <= (item.end_line ?? item.line) + after);
@@ -167,6 +240,7 @@ export async function matches(
     }
     if (kind === "match") {
       total += 1;
+      currentMatchCount += 1;
       if (limit === null || values.length < limit) {
         const subRaw = (data["submatches"] as Array<Record<string, unknown>>) ?? [];
         if (subRaw.length === 0) {
@@ -212,7 +286,7 @@ export async function matches(
       previous.shift();
     }
   }
-  return envelope(command, "matches", values, total, limit);
+  return envelope(command, "matches", values, total, limit, scanComplete);
 }
 
 export async function count(
@@ -221,10 +295,46 @@ export async function count(
   pattern: Buffer,
   limit: number | null,
   countMatches = false,
+  scan: ScanBounds = {},
 ): Promise<Record<string, unknown>> {
   const byPath = new Map<string, { path: Value; count: number }>();
   let total = 0;
-  for await (const event of backend.events(pattern, 0, 0)) {
+  const selected = await scanPaths(backend, scan);
+  const scanComplete = selected.complete;
+  if (selected.paths.length === 0) {
+    return {
+      status: "ok",
+      command: "count",
+      counts: [],
+      count: 0,
+      returned: 0,
+      ...(scanComplete ? { total: 0 } : {}),
+      matched_files: 0,
+      bounded: limit !== null,
+      complete: { scan: scanComplete, display: scanComplete },
+      ...(scanComplete ? {} : { help: "Use --full or raise scan bounds to scan all results within the existing exclusions." }),
+    };
+  }
+  let boundedComplete = scanComplete;
+  let currentPathKey: string | undefined;
+  for await (const event of backend.events(pattern, 0, 0, selected.paths)) {
+    if (event.type === "begin") {
+      const data = event.data as Record<string, unknown>;
+      currentPathKey = JSON.stringify(eventPath(data, root));
+      continue;
+    }
+    if (event.type === "end") {
+      const data = event.data as Record<string, unknown>;
+      if (data["binary_offset"] !== null && data["binary_offset"] !== undefined && currentPathKey !== undefined) {
+        const item = byPath.get(currentPathKey);
+        if (item) {
+          total -= item.count;
+          byPath.delete(currentPathKey);
+        }
+      }
+      currentPathKey = undefined;
+      continue;
+    }
     if (event.type !== "match") continue;
     const data = event.data as Record<string, unknown>;
     const path = eventPath(data, root);
@@ -252,13 +362,13 @@ export async function count(
     counts: values,
     count: values.length,
     returned: values.length,
-    total,
+    ...(boundedComplete ? { total } : {}),
     matched_files: byPath.size,
     bounded: limit !== null,
-    complete: { scan: true, display: values.length === byPath.size },
-    ...(values.length === byPath.size
+    complete: { scan: boundedComplete, display: boundedComplete && values.length === byPath.size },
+    ...(boundedComplete && values.length === byPath.size
       ? {}
-      : { help: "Use --full to return all results within the existing exclusions." }),
+      : { help: "Use --full or raise scan bounds to scan all results within the existing exclusions." }),
   };
 }
 
@@ -266,17 +376,28 @@ export async function metrics(
   backend: RgBackend,
   root: ResolvedRoot,
   limit: number | null,
+  scan: ScanBounds = {},
 ): Promise<Record<string, unknown>> {
   let fileCount = 0;
   let byteCount = 0;
   let lineCount = 0;
+  let scanComplete = true;
+  let scanBytes = 0;
   for await (const raw of backend.files()) {
-    if (limit !== null && fileCount >= limit) {
-      break;
-    }
+    if (limit !== null && fileCount >= limit) break;
+    if (scan.maxFiles !== undefined && fileCount >= scan.maxFiles) { scanComplete = false; break; }
     // rg reports absolute paths under the (absolute) search path; the raw
     // bytes are a valid filesystem path, including non-UTF-8 components.
+    let size: number;
+    try {
+      size = statSync(raw).size;
+    } catch {
+      scanComplete = false;
+      break;
+    }
+    if (scan.maxBytes !== undefined && scanBytes + size > scan.maxBytes) { scanComplete = false; break; }
     const content = readFileSync(raw);
+    scanBytes += content.length;
     fileCount += 1;
     byteCount += content.length;
     lineCount +=
@@ -291,7 +412,7 @@ export async function metrics(
       bytes_seen: byteCount,
       lines_seen: lineCount,
       bounded: true,
-      complete: { scan: false, display: true },
+      complete: { scan: scanComplete && false, display: true },
       help: "Use --full to scan all files within the existing exclusions.",
     };
   }
@@ -302,7 +423,7 @@ export async function metrics(
     bytes: byteCount,
     lines: lineCount,
     bounded: false,
-    complete: { scan: true, display: true },
+    complete: { scan: scanComplete, display: true },
   };
 }
 

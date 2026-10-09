@@ -31,6 +31,9 @@ export function rawArgvBytes(): Buffer[] {
           start = i + 1;
         }
       }
+      if (parts.at(-1)?.length === 0) {
+        parts.pop();
+      }
       if (parts.length === process.argv.length) {
         cached = parts;
         return cached;

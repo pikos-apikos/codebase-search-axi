@@ -25,7 +25,9 @@
     "prepack": "npm run build && npm run check:skill"
   },
   "dependencies": {
-    "axi-sdk-js": "0.1.13"
+    "@toon-format/toon": "2.3.1",
+    "axi-sdk-js": "0.1.13",
+    "smol-toml": "1.9.0"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

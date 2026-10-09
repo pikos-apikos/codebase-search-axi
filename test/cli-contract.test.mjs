@@ -19,6 +19,14 @@ import { execFileSync } from "node:child_process";
 const BIN = resolve(import.meta.dirname, "../bin/codebase-search");
 const NODE = process.execPath;
 const ORIGINAL_PATH = process.env.PATH ?? "";
+const HAS_STRACE = (() => {
+  try {
+    execFileSync("strace", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function makeRoot() {
   return mkdtempSync(join(tmpdir(), "codebase-search-"));
@@ -110,15 +118,6 @@ test("setup hooks is explicit, idempotent, and preserves unrelated home files", 
   }
 });
 
-test("setup hooks rejects project-scoped configuration", async () => {
-  for (const flag of ["--scope", "--project-dir"]) {
-    const { data, code } = await runCli(["setup", "hooks", "status", flag, "/tmp/project"]);
-    assert.equal(code, 2);
-    assert.equal(data.status, "error");
-    assert.equal(data.error, "invalid_command");
-  }
-});
-
 test("setup hooks requires an explicit isolated home", async () => {
   for (const action of ["status", "install", "uninstall"]) {
     const { data, code } = await runCli(["setup", "hooks", action]);
@@ -180,6 +179,14 @@ test("setup hooks surfaces SDK write failures", async () => {
   }
 });
 
+test("setup hooks rejects project-scoped configuration", async () => {
+  for (const flag of ["--scope", "--project-dir"]) {
+    const { data, code } = await runCli(["setup", "hooks", "status", flag, "/tmp/project"]);
+    assert.equal(code, 2);
+    assert.equal(data.status, "error");
+    assert.equal(data.error, "invalid_command");
+  }
+});
 test("unknown command is a structured invalid_command error", async () => {
   const { data, code } = await runCli(["unknown"]);
   assert.equal(data.status, "error");
@@ -341,6 +348,275 @@ test("--full includes optional paths but denies sensitive paths", async () => {
     assert.ok(paths.has("build/generated.txt"));
     assert.ok(!paths.has(".env.local"));
     assert.ok(!paths.has("signing.pem"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("mandatory denied globs cannot be bypassed by positive glob or scan flags", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "safe.txt", "public-marker\n");
+    write(root, "secret.key", "synthetic-secret-marker\n");
+    const common = ["--root", root, "--full", "--glob", "**/*.key", "--hidden", "--no-ignore"];
+    const cases = [
+      ["files", ...common],
+      ["search", "synthetic-secret-marker", ...common],
+      ["context", "synthetic-secret-marker", ...common],
+      ["count", "synthetic-secret-marker", ...common],
+      ["metrics", ...common],
+    ];
+    for (const args of cases) {
+      const { data, code, stdout } = await runCli(args);
+      assert.equal(code, 0, args[0]);
+      assert.equal(stdout.includes("synthetic-secret-marker"), false, args[0]);
+      const serialized = JSON.stringify(data);
+      assert.equal(serialized.includes("secret.key"), false, args[0]);
+      if (args[0] === "files") assert.deepEqual(data.files, []);
+      if (args[0] === "metrics") assert.equal(data.files, 0);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("display text and serialized byte bounds mark truncation", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "long.txt", "needle-abcdefghijklmnopqrstuvwxyz\n");
+    const text = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "6"]);
+    assert.equal(text.code, 0);
+    assert.equal(text.data.matches[0].text_truncated, true);
+    assert.equal(text.data.matches[0].text_bytes > 6, true);
+    const projected = await runCli(["search", "needle", "--root", root, "--fields", "path", "--max-text-bytes", "1"]);
+    assert.equal(projected.code, 0);
+    assert.deepEqual(projected.data.matches[0], { path: "long.txt" });
+    assert.equal(projected.data.complete.display, true);
+    const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "180"]);
+    assert.equal(bytes.code, 0);
+    assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 180);
+    const tooSmall = await runCli(["search", "needle", "--root", root, "--max-bytes", "1"]);
+    assert.equal(tooSmall.code, 1);
+    assert.equal(tooSmall.data.error, "output_bound");
+    const hugeBound = await runCli(["search", "needle", "--root", root, "--max-bytes", "999999999999999999999999999999999999999999"]);
+    assert.equal(hugeBound.code, 2);
+    assert.equal(hugeBound.data.error, "invalid_request");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("text bounds keep UTF-8 prefixes valid and selected metadata visible", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "unicode.txt", "needleé\n");
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "7", "--fields", "text"]);
+    assert.equal(code, 0);
+    assert.equal(data.matches[0].text, "needle");
+    assert.equal(data.matches[0].text_bytes > 7, true);
+    assert.equal(data.matches[0].text_truncated, true);
+    assert.equal(data.complete.display, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("text bounds budget only selected text fields", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "submatches.txt", "needle\n");
+    const { data, code } = await runCli([
+      "search", "needle", "--root", root, "--max-text-bytes", "1", "--fields", "submatches",
+    ]);
+    assert.equal(code, 0);
+    assert.equal(data.matches[0].submatches[0].match, "n");
+    assert.equal(data.matches[0].text_bytes > 1, true);
+    assert.equal(data.matches[0].text_truncated, true);
+    assert.equal(data.complete.display, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("text bounds preserve bounded non-UTF-8 bytes", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "binary.txt", Buffer.from([0x6e, 0x65, 0x65, 0x64, 0x6c, 0x65, 0xff, 0x0a]));
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "6"]);
+    assert.equal(code, 0);
+    assert.deepEqual(data.matches[0].text, { bytes: Buffer.from("needle").toString("base64") });
+    assert.equal(data.matches[0].text_truncated, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scan bounds stop discovery and report incomplete scans", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "one.txt", "needle\n");
+    write(root, "two.txt", "needle\n");
+    write(root, "nonmatching.txt", "other\n");
+    const { data, code } = await runCli(["search", "needle", "--root", root, "--full", "--scan-max-files", "1"]);
+    assert.equal(code, 2);
+    assert.equal(data.error, "invalid_command");
+    const bounded = await runCli(["search", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(bounded.code, 0);
+    assert.equal(bounded.data.complete.scan, false);
+    assert.equal("total" in bounded.data, false);
+    const count = await runCli(["count", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(count.code, 0);
+    assert.equal(count.data.complete.scan, false);
+    assert.equal("total" in count.data, false);
+    const nonmatching = await runCli(["search", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(nonmatching.code, 0);
+    assert.equal(nonmatching.data.complete.scan, false);
+    const nonmatchingCount = await runCli(["count", "needle", "--root", root, "--scan-max-files", "1"]);
+    assert.equal(nonmatchingCount.code, 0);
+    assert.equal(nonmatchingCount.data.complete.scan, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("scan byte bounds avoid content reads and files discovery survives EACCES", { skip: !HAS_STRACE ? "strace is unavailable" : false }, async () => {
+  const root = makeRoot();
+  const oversized = join(root, "oversized.txt");
+  try {
+    writeFileSync(oversized, Buffer.concat([Buffer.from("needle\n"), Buffer.alloc(2_097_152, 0x78)]));
+    const direct = execFileSync("rg", ["--no-config", "--files", "--", root], { encoding: "utf8" });
+    assert.match(direct, /oversized\.txt/);
+    for (const command of ["files", "search", "context", "count", "metrics"]) {
+      const trace = join(root, `${command}.trace`);
+      const args = command === "files" || command === "metrics"
+        ? [command, "--root", root, "--scan-max-bytes", "1"]
+        : [command, "needle", "--root", root, "--scan-max-bytes", "1"];
+      const proc = spawnSync("strace", ["-f", "-yy", "-e", "trace=read", "-o", trace, NODE, BIN, ...args, "--json"], {
+        encoding: "utf8",
+      });
+      assert.equal(proc.status, 0, `${command}: ${proc.stderr}`);
+      const traceText = readFileSync(trace, "utf8");
+      assert.doesNotMatch(traceText, /read\([^\n]*oversized\.txt/);
+    }
+    chmodSync(oversized, 0o000);
+    const unreadable = await runCli(["files", "--root", root, "--full"]);
+    assert.equal(unreadable.code, 0);
+    assert.ok(unreadable.data.files.includes("oversized.txt"));
+  } finally {
+    chmodSync(oversized, 0o644);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit TOML policy is loaded, validated, and format aliases JSON", async () => {
+  const root = makeRoot();
+  const policy = join(root, "policy.toml");
+  try {
+    write(root, "visible.txt", "needle\n");
+    write(root, "optional/hidden.txt", "needle\n");
+    writeFileSync(policy, 'optional_globs = [\n  \'!**/optional/**\', # keep # inside a literal\n]\nmax_results = 1\n');
+    const files = await runCli(["files", "--root", root, "--policy", policy, "--full", "--format", "json"]);
+    assert.equal(files.code, 0);
+    assert.deepEqual([...files.data.files].sort(), ["policy.toml", "visible.txt"]);
+    assert.equal(files.data.bounded, false);
+    write(root, "optional\n/line.txt", "needle\n");
+    writeFileSync(join(root, "bad.toml"), 'optional_globs = ["""\n!**/optional\n/**\n"""]\n');
+    const multilineGlob = await runCli(["files", "--root", root, "--policy", join(root, "bad.toml"), "--full"]);
+    assert.equal(multilineGlob.code, 0);
+    assert.equal(multilineGlob.data.files.includes("optional\n/line.txt"), false);
+    const malformed = join(root, "bad.toml");
+    writeFileSync(malformed, "not valid = [");
+    const bad = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(bad.code, 1);
+    assert.equal(bad.data.error, "invalid_policy");
+    writeFileSync(malformed, 'max_results = 1\nmax_results = 2\n');
+    const duplicate = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(duplicate.code, 1);
+    assert.equal(duplicate.data.error, "invalid_policy");
+    writeFileSync(malformed, '[policy]\nmax_results = 1\n');
+    const nested = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(nested.code, 1);
+    assert.equal(nested.data.error, "invalid_policy");
+    writeFileSync(malformed, 'optional_globs = [\n  """!**/#cache/**""",\n]\n');
+    const multiline = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(multiline.code, 0);
+    writeFileSync(malformed, 'optional_globs = ["""!**/\"quoted\"/**"""]\n');
+    const quotedMultiline = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(quotedMultiline.code, 0);
+    writeFileSync(malformed, 'optional_globs = ["foo]"]\n');
+    const closingBracket = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(closingBracket.code, 0);
+    writeFileSync(malformed, 'optional_globs = ["\\u12"]\n');
+    const badEscape = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(badEscape.code, 1);
+    writeFileSync(malformed, 'optional_globs = ["one"\n  "two"]\n');
+    const missingComma = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(missingComma.code, 1);
+    writeFileSync(malformed, 'optional_globs = "one\n two"\n');
+    const multilineBasic = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(multilineBasic.code, 1);
+    writeFileSync(malformed, Buffer.from('optional_globs = ["foo\0bar"]\n', "utf8"));
+    const nul = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(nul.code, 1);
+    writeFileSync(malformed, Buffer.from([0x6f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x61, 0x6c, 0x5f, 0x67, 0x6c, 0x6f, 0x62, 0x73, 0x20, 0x3d, 0x20, 0x5b, 0x22, 0x66, 0x6f, 0x6f, 0xff, 0x22, 0x5d, 0x0a]));
+    const invalidUtf8 = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(invalidUtf8.code, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI globs override policy globs while mandatory denies remain last", async () => {
+  const root = makeRoot();
+  const policy = join(root, "policy.toml");
+  try {
+    write(root, "dist/allowed.txt", "needle\n");
+    write(root, "secret.key", "needle\n");
+    writeFileSync(policy, 'optional_globs = ["!**/dist/**"]\n');
+    const result = await runCli([
+      "files", "--root", root, "--policy", policy, "--glob", "**/dist/**", "--full",
+    ]);
+    assert.equal(result.code, 0);
+    assert.deepEqual(result.data.files, ["dist/allowed.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bounded search, context, and count preserve non-UTF8 paths", async () => {
+  const root = makeRoot();
+  try {
+    const firstName = Buffer.from([0x30, 0x2d, 0xff, 0x2e, 0x74, 0x78, 0x74]);
+    const secondName = Buffer.from([0x31, 0x2d, 0xfe, 0x2e, 0x74, 0x78, 0x74]);
+    writeFileSync(Buffer.concat([Buffer.from(root), Buffer.from([0x2f]), firstName]), "needle\n");
+    writeFileSync(Buffer.concat([Buffer.from(root), Buffer.from([0x2f]), secondName]), "needle\n");
+    for (const command of ["search", "context", "count"]) {
+      const args = [command, ...(command === "files" ? [] : ["needle"]), "--root", root, "--scan-max-files", "1"];
+      const result = await runCli(args);
+      assert.equal(result.code, 0, command);
+      assert.equal(result.data.complete.scan, false, command);
+      const records = command === "count" ? result.data.counts : result.data.matches;
+      assert.equal(records.length, 1, command);
+      const names = new Set([firstName.toString("base64"), secondName.toString("base64")]);
+      assert.ok(names.has(records[0].path?.bytes), command);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("format aliases select JSON errors and output bounds use TOON", async () => {
+  const root = makeRoot();
+  try {
+    const bad = join(root, "bad.toml");
+    writeFileSync(bad, "invalid = true\n");
+    const error = await runCli(["files", "--root", root, "--policy", bad, "--format", "json"], { json: false });
+    assert.equal(error.code, 1);
+    assert.equal(error.data.error, "invalid_policy");
+    write(root, "a.txt", "x\n");
+    const toon = await runCli(["files", "--root", root, "--max-bytes", "20"], { json: false });
+    assert.equal(toon.code, 1);
+    assert.match(toon.stdout, /^error:/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

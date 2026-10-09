@@ -12,6 +12,7 @@
 import {
   mkdtempSync,
   realpathSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -20,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isValidUtf8 } from "./argv.js";
 import { RgError } from "./backend.js";
+import { parse as parseToml } from "smol-toml";
 
 /** Mandatory exclusions that apply to every search mode. */
 export const MANDATORY_GLOBS: readonly string[] = [
@@ -35,6 +37,63 @@ export const MANDATORY_GLOBS: readonly string[] = [
 ];
 
 /** Optional exclusions used by bounded searches. */
+export interface PolicyConfig {
+  optionalGlobs: string[];
+  maxResults?: number;
+  maxTextBytes?: number;
+  maxBytes?: number;
+  scanMaxFiles?: number;
+  scanMaxBytes?: number;
+}
+
+function invalidPolicy(): RgError {
+  return new RgError("invalid_policy", "Policy must be a readable TOML file with supported values.");
+}
+
+/** Load explicitly named, trusted TOML policy data; never auto-load config. */
+export function loadPolicy(rawPath: string): PolicyConfig {
+  try {
+    const path = rawPath.startsWith("/") ? rawPath : join(process.cwd(), rawPath);
+    if (!statSync(path).isFile()) throw invalidPolicy();
+    const bytes = readFileSync(path);
+    if (!isValidUtf8(bytes)) throw invalidPolicy();
+    const text = bytes.toString("utf8");
+    const parsed = parseToml(text) as Record<string, unknown>;
+    const table = parsed;
+    if (!isRecord(table)) {
+      throw invalidPolicy();
+    }
+    const result: PolicyConfig = { optionalGlobs: [] };
+    const allowed = new Set(["optional_globs", "max_results", "max_text_bytes", "max_bytes", "scan_max_files", "scan_max_bytes"]);
+    for (const key of Object.keys(table)) {
+      if (!allowed.has(key)) throw invalidPolicy();
+    }
+    if (table.optional_globs !== undefined) {
+      if (!Array.isArray(table.optional_globs) || table.optional_globs.some((item) => typeof item !== "string")) throw invalidPolicy();
+      result.optionalGlobs = table.optional_globs;
+    }
+    if (table.max_results !== undefined) result.maxResults = numberValue(table.max_results);
+    if (table.max_text_bytes !== undefined) result.maxTextBytes = numberValue(table.max_text_bytes);
+    if (table.max_bytes !== undefined) result.maxBytes = numberValue(table.max_bytes);
+    if (table.scan_max_files !== undefined) result.scanMaxFiles = numberValue(table.scan_max_files);
+    if (table.scan_max_bytes !== undefined) result.scanMaxBytes = numberValue(table.scan_max_bytes);
+    return result;
+  } catch (error) {
+    if (error instanceof RgError && error.code === "invalid_policy") throw error;
+    throw invalidPolicy();
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value !== "number" || value < 1) throw invalidPolicy();
+  if (!Number.isSafeInteger(value)) throw invalidPolicy();
+  return value;
+}
+
 export const OPTIONAL_GLOBS: readonly string[] = [
   "!**/node_modules/**",
   "!**/vendor/**",
@@ -150,10 +209,16 @@ export function resolveRoot(rawRoot: Buffer): ResolvedRoot {
   if (!isDirectory(abs)) {
     throw invalidRoot();
   }
-  rejectDeniedRoot(abs);
+  let canonical: Buffer;
+  try {
+    canonical = realpathSync.native(abs, { encoding: "buffer" });
+  } catch {
+    throw invalidRoot();
+  }
+  rejectDeniedRoot(canonical);
   const dir = mkdtempSync(join(tmpdir(), "codebase-search-root-"));
   const link = join(dir, "root");
-  symlinkSync(abs, link);
+  symlinkSync(canonical, link);
   return {
     searchPath: link,
     searchPathBytes: Buffer.from(link, "utf-8"),

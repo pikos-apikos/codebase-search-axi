@@ -17,17 +17,19 @@ import {
   type AxiCliCommand,
   type AxiCliOptions,
 } from "axi-sdk-js";
+import { encode as encodeToon } from "@toon-format/toon";
 import { realpathSync } from "node:fs";
 import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import { RgBackend, reap, RgError, type RgOptions } from "./backend.js";
 import { count, files, matches, metrics } from "./results.js";
-import { resolveRoot, type ResolvedRoot } from "./policy.js";
+import { loadPolicy, resolveRoot, type PolicyConfig, type ResolvedRoot } from "./policy.js";
 import { rawArgvBytes } from "./argv.js";
 import { VERSION } from "./version.js";
 
 const DEFAULT_LIMIT = 50;
-
+const DEFAULT_MAX_TEXT_BYTES = 4096;
+const DEFAULT_MAX_BYTES = 65536;
 function isPersonalHome(homeDir: string): boolean {
   if (homeDir === "~" || homeDir === "$HOME" || homeDir === "${HOME}") return true;
   const personalHome = userInfo().homedir;
@@ -51,6 +53,11 @@ interface ParsedCommand {
   rgOptions: RgOptions;
   countMatches: boolean;
   fields: string[];
+  policy: PolicyConfig;
+  scanMaxFiles?: number;
+  scanMaxBytes?: number;
+  maxTextBytes?: number;
+  maxBytes?: number;
 }
 
 let outputJson = false;
@@ -70,10 +77,18 @@ function hasJsonSelector(args: string[]): boolean {
         arg === "--before" ||
         arg === "--after" ||
         arg === "--fields" ||
+        arg === "--policy" ||
+        arg === "--scan-max-files" ||
+        arg === "--scan-max-bytes" ||
+        arg === "--max-text-bytes" ||
+        arg === "--max-bytes" ||
         arg === "--type" ||
         arg === "--type-not" ||
         arg === "--glob")
     ) {
+      i += 1;
+    } else if (!afterSeparator && arg === "--format") {
+      if (args[i + 1] === "json") return true;
       i += 1;
     }
   }
@@ -116,6 +131,12 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   const rgOptions: RgOptions = { types: [], typesNot: [], globs: [] };
   let countMatches = false;
   let fields: string[] = [];
+  let policyPath: string | undefined;
+  let format: "toon" | "json" | undefined;
+  let scanMaxFiles: number | undefined;
+  let scanMaxBytes: number | undefined;
+  let maxTextBytes: number | undefined;
+  let maxBytes: number | undefined;
   let pattern: Buffer | undefined;
   let afterSeparator = false;
 
@@ -123,7 +144,11 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     if (!/^-?\d+$/.test(value)) {
       throw requestError(`${flag} must be an integer`);
     }
-    return Number.parseInt(value, 10);
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed)) {
+      throw requestError(`${flag} must be a safe integer`);
+    }
+    return parsed;
   };
 
   let i = 0;
@@ -163,6 +188,25 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
       if (i + 1 >= strings.length) throw usageError("--fields requires a value");
       fields = strings[i + 1].split(",").map((field) => field.trim()).filter(Boolean);
       if (fields.length === 0) throw usageError("--fields requires at least one field");
+      i += 2;
+    } else if (arg === "--policy") {
+      if (i + 1 >= strings.length) throw usageError("--policy requires a value");
+      policyPath = strings[i + 1];
+      i += 2;
+    } else if (arg === "--format") {
+      if (i + 1 >= strings.length) throw usageError("--format requires a value");
+      const value = strings[i + 1];
+      if (value !== "toon" && value !== "json") throw usageError("--format must be toon or json");
+      format = value;
+      i += 2;
+    } else if (["--scan-max-files", "--scan-max-bytes", "--max-text-bytes", "--max-bytes"].includes(arg)) {
+      if (i + 1 >= strings.length) throw usageError(`${arg} requires a value`);
+      const value = parseBound(strings[i + 1], arg);
+      if (value < 1) throw requestError(`${arg} must be positive`);
+      if (arg === "--scan-max-files") scanMaxFiles = value;
+      else if (arg === "--scan-max-bytes") scanMaxBytes = value;
+      else if (arg === "--max-text-bytes") maxTextBytes = value;
+      else maxBytes = value;
       i += 2;
     } else if (arg === "--fixed-strings") {
       rgOptions.fixedStrings = true;
@@ -225,6 +269,9 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   if (full && maxResultsExplicit) {
     throw usageError("--full conflicts with an explicit --max-results bound");
   }
+  if (full && (scanMaxFiles !== undefined || scanMaxBytes !== undefined || maxTextBytes !== undefined || maxBytes !== undefined)) {
+    throw usageError("--full conflicts with explicit scan or display bounds");
+  }
   if (maxResults !== null && maxResults < 1) {
     throw requestError("--max-results must be positive");
   }
@@ -239,16 +286,32 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   }
 
   const root = resolveRoot(rootRaw);
-  const limit = full ? null : (maxResults ?? DEFAULT_LIMIT);
+  let policy: PolicyConfig;
+  try {
+    policy = policyPath ? loadPolicy(policyPath) : { optionalGlobs: [] };
+  } catch (error) {
+    root.cleanup();
+    throw error;
+  }
+  const effectiveMax = maxResults ?? policy.maxResults;
+  const limit = full ? null : (effectiveMax ?? DEFAULT_LIMIT);
+  if (policy.optionalGlobs.length > 0) {
+    rgOptions.globs = [...policy.optionalGlobs, ...(rgOptions.globs ?? [])];
+  }
   const parsed: ParsedCommand = {
     command,
     root,
     limit,
     full,
-    json,
+    json: format === "json" || json,
     rgOptions,
     countMatches,
     fields,
+    policy,
+    scanMaxFiles: full ? undefined : scanMaxFiles ?? policy.scanMaxFiles,
+    scanMaxBytes: full ? undefined : scanMaxBytes ?? policy.scanMaxBytes,
+    maxTextBytes: full ? undefined : maxTextBytes ?? policy.maxTextBytes ?? DEFAULT_MAX_TEXT_BYTES,
+    maxBytes: full ? undefined : maxBytes ?? policy.maxBytes ?? DEFAULT_MAX_BYTES,
     before: command === "context" ? before : 0,
     after: command === "context" ? after : 0,
   };
@@ -299,7 +362,7 @@ const HELP = [
   "  count     count matching lines or occurrences",
   "  metrics   count bounded files, bytes, and lines",
   "",
-  "Common flags: --root PATH, --max-results N, --full, --json, --fields FIELD[,FIELD...]",
+  "Common flags: --root PATH, --policy PATH, --max-results N, --scan-max-files N, --scan-max-bytes N, --max-text-bytes N, --max-bytes N, --full, --json, --format toon|json, --fields FIELD[,FIELD...]",
   "Metrics fields: files, bytes, lines (bounded mode also accepts files_seen, bytes_seen, lines_seen)",
   "Matching flags: --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --multiline, --multiline-dotall, --pcre2",
   "context flags: --before N, --after N",
@@ -328,7 +391,7 @@ function commandHelp(command: string): string {
   }
   lines.push(
     "",
-    "Flags: --root PATH (default: .), --max-results N (default: 50), --full, --json, --fields FIELD[,FIELD...]",
+    "Flags: --root PATH (default: .), --policy PATH, --max-results N (default: 50), --scan-max-files N, --scan-max-bytes N, --max-text-bytes N, --max-bytes N, --full, --json, --format toon|json, --fields FIELD[,FIELD...]",
   );
   if (command === "metrics") {
     lines.push("Metrics fields: files, bytes, lines (bounded mode also accepts files_seen, bytes_seen, lines_seen)");
@@ -358,8 +421,7 @@ function setupCommand(args: string[]): Record<string, unknown> | string {
       json = true;
     } else if (arg === "--home") {
       if (i + 1 >= args.length) throw usageError(`${arg} requires a value`);
-      const value = args[++i];
-      homeDir = value;
+      homeDir = args[++i];
     } else throw usageError(`unrecognized argument: ${arg}`);
   }
   if (!homeDir) throw usageError("--home PATH is required for setup hooks");
@@ -390,6 +452,117 @@ const FIELD_NAMES: Record<CommandName, ReadonlySet<string>> = {
   metrics: new Set(["files", "bytes", "lines", "files_seen", "bytes_seen", "lines_seen"]),
 };
 
+function valueBytes(value: unknown): Buffer | undefined {
+  if (typeof value === "string") return Buffer.from(value, "utf8");
+  if (value && typeof value === "object" && typeof (value as { bytes?: unknown }).bytes === "string") {
+    return Buffer.from((value as { bytes: string }).bytes, "base64");
+  }
+  return undefined;
+}
+
+function encodeValue(bytes: Buffer): string | { bytes: string } {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return { bytes: bytes.toString("base64") };
+  }
+}
+
+function boundedUtf8Prefix(bytes: Buffer, maxBytes: number): Buffer {
+  let end = Math.min(bytes.length, maxBytes);
+  while (end > 0) {
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end));
+      return bytes.subarray(0, end);
+    } catch {
+      end -= 1;
+    }
+  }
+  return Buffer.alloc(0);
+}
+
+function isByteValue(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && typeof (value as { bytes?: unknown }).bytes === "string");
+}
+
+function applyTextBound(record: Record<string, unknown>, maxTextBytes: number | undefined, selectedFields: string[]): void {
+  if (maxTextBytes === undefined) return;
+  const collection = record.matches;
+  if (!Array.isArray(collection)) return;
+  const exposesAll = selectedFields.length === 0;
+  const exposes = (field: string) => exposesAll || selectedFields.includes(field);
+  const exposesText = exposes("text") || exposes("before") || exposes("after") || exposes("submatches");
+  for (const item of collection) {
+    if (!item || typeof item !== "object") continue;
+    const entry = item as Record<string, unknown>;
+    const fields: string[] = [];
+    if (exposes("text")) fields.push("text");
+    if (exposes("before") && Array.isArray(entry.before)) fields.push("before");
+    if (exposes("after") && Array.isArray(entry.after)) fields.push("after");
+    let used = 0;
+    let originalBytes = 0;
+    let truncated = false;
+    const trim = (value: unknown): unknown => {
+      const bytes = valueBytes(value);
+      if (!bytes) return value;
+      const remaining = Math.max(0, maxTextBytes - used);
+      const kept = isByteValue(value) ? bytes.subarray(0, remaining) : boundedUtf8Prefix(bytes, remaining);
+      used += bytes.length;
+      originalBytes += bytes.length;
+      if (kept.length !== bytes.length) truncated = true;
+      // Preserve the producer's byte-valued representation even when the
+      // bounded prefix happens to be valid UTF-8. A binary line must not
+      // silently change type merely because its retained prefix is printable.
+      return isByteValue(value) ? { bytes: kept.toString("base64") } : encodeValue(kept);
+    };
+    for (const field of fields) {
+      const value = entry[field];
+      if (Array.isArray(value)) entry[field] = value.map(trim);
+      else if (value !== undefined) entry[field] = trim(value);
+    }
+    if (exposes("submatches") && Array.isArray(entry.submatches)) {
+      entry.submatches = entry.submatches.map((sub) => {
+        if (!sub || typeof sub !== "object") return sub;
+        const copy = { ...(sub as Record<string, unknown>) };
+        if (copy.match !== undefined) copy.match = trim(copy.match);
+        return copy;
+      });
+    }
+    entry.text_bytes = originalBytes;
+    if (truncated && exposesText) {
+      entry.text_truncated = true;
+      const complete = record.complete;
+      if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
+    }
+  }
+}
+
+function serializeRecord(record: Record<string, unknown>, json: boolean): string {
+  return json ? JSON.stringify(record) : encodeToon(record);
+}
+
+function applyOutputBound(record: Record<string, unknown>, maxBytes: number | undefined, json: boolean): void {
+  if (maxBytes === undefined) return;
+  const collectionKey = ["files", "matches", "counts"].find((key) => Array.isArray(record[key]));
+  if (!collectionKey) {
+    if (Buffer.byteLength(serializeRecord(record, json) + "\n", "utf8") > maxBytes) {
+      throw new RgError("output_bound", "--max-bytes is too small for the serialized result envelope.");
+    }
+    return;
+  }
+  const collection = record[collectionKey] as unknown[];
+  while (collection.length > 0 && Buffer.byteLength(serializeRecord(record, json) + "\n", "utf8") > maxBytes) {
+    collection.pop();
+    record.returned = collection.length;
+    if ("count" in record) record.count = collection.length;
+    const complete = record.complete;
+    if (complete && typeof complete === "object") (complete as Record<string, unknown>).display = false;
+  }
+  if (Buffer.byteLength(serializeRecord(record, json) + "\n", "utf8") > maxBytes) {
+    throw new RgError("output_bound", "--max-bytes is too small for the serialized result envelope.");
+  }
+}
+
 function projectFields(command: CommandName, record: Record<string, unknown>, fields: string[]): Record<string, unknown> {
   if (fields.length === 0) return record;
   for (const field of fields) {
@@ -403,7 +576,10 @@ function projectFields(command: CommandName, record: Record<string, unknown>, fi
   }
   if (collection && Array.isArray(record[collection])) {
     projected[collection] = (record[collection] as Array<Record<string, unknown>>).map((item) =>
-      Object.fromEntries(fields.filter((field) => field in item).map((field) => [field, item[field]])),
+      Object.fromEntries([
+        ...fields,
+        ...(fields.some((field) => ["text", "before", "after", "submatches"].includes(field)) ? ["text_bytes", "text_truncated"] : []),
+      ].filter((field, index, all) => all.indexOf(field) === index && field in item).map((field) => [field, item[field]])),
     );
     return projected;
   }
@@ -423,9 +599,10 @@ function execute(
   parsed: ParsedCommand,
   backend: RgBackend,
 ): Promise<Record<string, unknown>> {
+  const scan = { maxFiles: parsed.scanMaxFiles, maxBytes: parsed.scanMaxBytes };
   switch (parsed.command) {
     case "files":
-      return files(backend, parsed.root, parsed.limit);
+      return files(backend, parsed.root, parsed.limit, scan);
     case "search":
     case "context":
       return matches(
@@ -436,6 +613,7 @@ function execute(
         parsed.limit,
         parsed.before,
         parsed.after,
+        scan,
       );
     case "count":
       return count(
@@ -444,9 +622,10 @@ function execute(
         parsed.patternBytes ?? Buffer.alloc(0),
         parsed.limit,
         parsed.countMatches,
+        scan,
       );
     case "metrics":
-      return metrics(backend, parsed.root, parsed.limit);
+      return metrics(backend, parsed.root, parsed.limit, scan);
   }
 }
 
@@ -481,7 +660,13 @@ export async function main(): Promise<void> {
         );
       }
       const parsed = parseCommand(command, args);
-      const temp = new RgBackend(parsed.root, { ...parsed.rgOptions, full: parsed.full });
+      let temp: RgBackend;
+      try {
+        temp = new RgBackend(parsed.root, { ...parsed.rgOptions, full: parsed.full });
+      } catch (error) {
+        parsed.root.cleanup();
+        throw error;
+      }
       backend = temp;
       try {
         const record = await execute(parsed, temp);
@@ -491,7 +676,9 @@ export async function main(): Promise<void> {
             "Scan interrupted; no complete results are available.",
           );
         }
+        applyTextBound(record, parsed.maxTextBytes, parsed.fields);
         const projected = projectFields(parsed.command, record, parsed.fields);
+        applyOutputBound(projected, parsed.maxBytes, parsed.json);
         return parsed.json ? JSON.stringify(projected) : projected;
       } finally {
         parsed.root.cleanup();
