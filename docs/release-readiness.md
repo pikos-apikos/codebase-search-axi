@@ -1,13 +1,13 @@
 # 0.1.0 release readiness — 2026-10-09
 
-Decision record: [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9). The owner approved MIT, initial-material distribution rights, and the prepared first GitHub publication route on 2026-10-09; [decision receipt](https://github.com/pikos-apikos/codebase-search-axi/issues/9#issuecomment-6080016390). This document records preparation and remaining execution dependencies; it does not claim completed publication.
+Decision record: [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9). The owner approved MIT, initial-material distribution rights, and the first GitHub publication route on 2026-10-09; [decision receipt](https://github.com/pikos-apikos/codebase-search-axi/issues/9#issuecomment-6080016390). This document records the historical preparation evidence and the verified publication receipt.
 
 ## Candidate and scope
 
 - Implementation baseline: [4513cf5ad994ec0a855112b95a490b5e5a9dbb62](https://github.com/pikos-apikos/codebase-search-axi/commit/4513cf5ad994ec0a855112b95a490b5e5a9dbb62), following merged PR #21.
-- Candidate version: `codebase-search-axi@0.1.0`. Exact preparation PR/head, tarball SHA-256, and verification receipt are recorded on Issue #9 after the preparation commit exists.
+- Released version: `codebase-search-axi@0.1.0`, GitHub pre-release from `3dc5b60ff3adf58086ecdb6f1fd45d1c919fe102`. Tarball SHA-256 and verification receipt are recorded below and on Issue #9.
 - One Node package, official axi-sdk-js 0.1.13, direct ripgrep, compiled launcher, portable skill, notices, and documentation. No Python bridge, MCP, graph, index, or service.
-- Current state at licensing preparation: private repository, MIT project metadata with a root LICENSE, no tags/releases. The rebuilt tarball is an unpublished review artifact.
+- Historical preparation state: the repository was private with no tag/release before publication. The final rebuilt tarball is the published pre-release asset.
 - Approved first distribution: public existing GitHub repository with retained history/branches plus a `v0.1.0` GitHub pre-release with verified tarball/checksum, after the original evaluation materials are incorporated and final checks pass. npm publication and AXI catalog submission remain deferred.
 
 ## Verification
@@ -20,8 +20,8 @@ Local preparation uses Linux, Node 24.19.0, npm, and ripgrep 15.2.0 with PCRE2:
 - `bash tests/codebase-search.test.sh`: 69 tests attempted, 68 pass; the read-bound strace test cannot run because the execution environment denies ptrace.
 - `node --test --test-skip-pattern 'scan byte bounds avoid content reads'`: all 68 executable tests pass; the one unavailable trace test is explicitly excluded, not counted as passed.
 - `npm run package:check`: builds, checks skill equality, packs, installs in a fresh directory, runs the installed CLI, and checks hook status/install/uninstall in an isolated home.
-- The final tarball is separately installed outside the checkout and checked against the README commands and a synthetic denied-path fixture. Exact results/checksum belong to the Issue #9 candidate receipt.
-- The preparation PR's own CI must finish before any merge or release decision is executed. Recheck its actual final head.
+- The final tarball was separately installed outside the checkout and checked against the README commands and a synthetic denied-path fixture. Its SHA-256 is `9b149f5ac67d79fd7bd98c5539ac6f175803d7421bcdfd2ecf9fd1af05b06d38`.
+- Merged-main CI passed at [run 37928439182](https://github.com/pikos-apikos/codebase-search-axi/actions/runs/37928439182) for `3dc5b60ff3adf58086ecdb6f1fd45d1c919fe102`.
 
 Only Linux has release evidence. The full declared Node >=20 range and other operating systems have not received release qualification. Non-UTF8 argv recovery uses Linux /proc; other platforms preserve valid UTF-8 arguments. Hooks currently accept only explicit isolated homes and reject personal account homes/project scope.
 
@@ -61,18 +61,18 @@ Development-only TypeScript, Node types, and undici types are recorded separatel
 
 Issue #8's latest receipts record synthetic correctness and limited agent-session usage evidence. Timing is explicitly deferred and does not block preparation. Parent-scope/mandatory-exclusion fairness corrections and small comparison samples limit generalization.
 
-The curated report, usage summary, and chart are incorporated under [docs/evaluation/2026-10-09](evaluation/2026-10-09/); raw reports, transcripts, prompts, and private corpus data remain excluded. No quantitative token, speed, or general agent-efficiency improvement is asserted in this release candidate. No new paid runs or private-corpus access occurred during preparation.
+The curated report, usage summary, and chart are incorporated under [docs/evaluation/2026-10-09](evaluation/2026-10-09); raw reports, transcripts, prompts, and private corpus data remain excluded. No quantitative token, speed, or general agent-efficiency improvement is asserted in this release. No new paid runs or private-corpus access occurred during preparation.
 
 ## Recorded decision and remaining execution boundary
 
-The explicit owner disposition is on Issue #9: MIT and initial-material distribution rights confirmed; existing repository public with retained history/branches, followed by GitHub v0.1.0 pre-release with rebuilt tarball/checksum; npm and upstream AXI submission deferred. No repeat license/provenance selection is needed.
+The explicit owner disposition on Issue #9 is complete: MIT and initial-material distribution rights confirmed; existing repository made public with retained history/branches, followed by GitHub v0.1.0 pre-release with rebuilt tarball/checksum. npm and upstream AXI submission remain deferred. No repeat license/provenance selection is needed.
 
-Before executing that publication route:
+Historical preparation gates and their verified outcomes:
 
-1. Review the incorporated chart, report tables/limitations, and source-hash manifest in [docs/evaluation.md](evaluation.md).
+1. The incorporated chart, report tables/limitations, and source-hash manifest are recorded in [docs/evaluation.md](evaluation.md).
 2. Inspect the publishable evidence and any new refs/diff within the history-audit boundary.
 3. Verify the actual final head, package installation and CI, and record the licensed tarball checksum.
-4. Execute the approved visibility/release actions through the authorized GitHub capability.
-5. Record actual public URLs and the exact released revision. No successful action is inferred from an authorization or handoff.
+4. The approved visibility/release actions were executed through the authorized GitHub capability.
+5. Actual public URLs, released revision, and asset digest are recorded in the [Issue #9 publication receipt](https://github.com/pikos-apikos/codebase-search-axi/issues/9#issuecomment-6080659991).
 
-Keep #9 open until its execution/completion record is satisfied. #10 remains blocked until actual public source exists and its separate upstream authorization is recorded. No history rewrite, npm publication, or upstream submission is approved by this first-release decision.
+Issue #9 is closed after its execution/completion record was satisfied. #10 remains blocked pending its separate upstream authorization and admission review. No history rewrite, npm publication, or upstream submission was performed.

@@ -34,5 +34,5 @@ The chart is a portable SVG and its values agree with the JSON summary.
 The source report's local operational paths were replaced with an explicit omitted-raw scope.
 No missing metric was inferred and no broad improvement is claimed.
 
-Release publication remains pending the final artifact-branch checks and the approved visibility/release action.
+The approved GitHub publication is complete at [v0.1.0](https://github.com/pikos-apikos/codebase-search-axi/releases/tag/v0.1.0), targeting `3dc5b60ff3adf58086ecdb6f1fd45d1c919fe102`.
 MIT and initial-material distribution rights are already approved; they do not require another selection.

@@ -4,7 +4,7 @@ A small, read-only [ripgrep](https://github.com/BurntSushi/ripgrep) wrapper for 
 
 Use it for file discovery, pattern search, context, counts, and secondary repository metrics. Matching remains ripgrep's responsibility. The wrapper supplies policy, finite display limits, and explicit scan/display completeness.
 
-**Release status:** `0.1.0` is an unpublished experimental candidate, licensed under [MIT](LICENSE). The owner confirmed the initial material may be distributed under MIT on 2026-10-09. [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9) records the approved first GitHub publication route and outstanding evidence transfer/publication steps. AXI catalog admission is separate; no admission or measured performance improvement is claimed.
+**Release status:** `0.1.0` is a published GitHub experimental pre-release, licensed under [MIT](LICENSE), from [commit `3dc5b60`](https://github.com/pikos-apikos/codebase-search-axi/commit/3dc5b60ff3adf58086ecdb6f1fd45d1c919fe102). Download the [release tarball](https://github.com/pikos-apikos/codebase-search-axi/releases/download/v0.1.0/codebase-search-axi-0.1.0.tgz) and verify SHA-256 `9b149f5ac67d79fd7bd98c5539ac6f175803d7421bcdfd2ecf9fd1af05b06d38`. [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9) records the completed publication receipts. AXI catalog admission is separate; no admission or measured performance improvement is claimed.
 
 ## Requirements and installation
 
@@ -99,7 +99,7 @@ bin/codebase-search setup hooks install --home "$integration_home" --json
 bin/codebase-search setup hooks uninstall --home "$integration_home" --json
 ```
 
-SDK `update` and `update --check` are separate, explicit maintenance commands that can contact a registry. They do not imply this candidate is published; use the candidate installation instructions above.
+SDK `update` and `update --check` are separate, explicit maintenance commands that can contact a registry. npm publication remains deferred; use the GitHub release installation instructions above.
 
 ## Verification and evidence
 
