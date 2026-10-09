@@ -4,7 +4,7 @@ A small, read-only [ripgrep](https://github.com/BurntSushi/ripgrep) wrapper for 
 
 Use it for file discovery, pattern search, context, counts, and secondary repository metrics. Matching remains ripgrep's responsibility. The wrapper supplies policy, finite display limits, and explicit scan/display completeness.
 
-**Release status:** `0.1.0` is an unpublished candidate. License, source provenance confirmation, visibility, and publication await the decision in [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9). The package declares `UNLICENSED`. AXI catalog admission is separate; no admission or measured performance improvement is claimed.
+**Release status:** `0.1.0` is an unpublished experimental candidate, licensed under [MIT](LICENSE). The owner confirmed the initial material may be distributed under MIT on 2026-10-09. [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9) records the approved first GitHub publication route and outstanding evidence transfer/publication steps. AXI catalog admission is separate; no admission or measured performance improvement is claimed.
 
 ## Requirements and installation
 
@@ -112,4 +112,4 @@ npm run package:check
 
 The public suite builds TypeScript and checks search, policy, fidelity, bounds, errors, and SDK integration. Package checks pack and install outside the checkout, then exercise the executable and isolated hook lifecycle. One read-bound regression requires working `strace`/`ptrace`; verification records environment restrictions explicitly.
 
-See [CHANGELOG.md](CHANGELOG.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [release readiness](docs/release-readiness.md). [Issue #8](https://github.com/pikos-apikos/codebase-search-axi/issues/8) records evaluation evidence. Timing is deferred; no general token or speed reduction is claimed.
+See [CHANGELOG.md](CHANGELOG.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and [release readiness](docs/release-readiness.md). [Evaluation evidence and limitations](docs/evaluation.md) summarize the tracker receipts from [Issue #8](https://github.com/pikos-apikos/codebase-search-axi/issues/8). The original chart and numerical report tables still need transfer from the evaluation host. Timing is deferred; the measurements do not yet establish reliable token savings or a general agent-experience improvement.

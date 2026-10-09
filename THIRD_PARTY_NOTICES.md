@@ -1,6 +1,6 @@
 # Third-party notices
 
-These are the exact runtime dependencies installed from package-lock.json. Their licenses apply to their respective software; they do not license this project's original code. Original code remains UNLICENSED pending Issue #9. Dependencies are installed separately by npm, not embedded into the compiled CLI.
+These are the exact runtime dependencies installed from package-lock.json. Their licenses apply to their respective software; they do not license this project's original code. Project code is licensed under MIT; see LICENSE and the owner's decision on Issue #9. Dependencies are installed separately by npm, not embedded into the compiled CLI.
 
 ## axi-sdk-js 0.1.13 — MIT
 
@@ -99,4 +99,4 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 TypeScript 5.7.2 (Apache-2.0), @types/node 22.10.2 (MIT), and undici-types 6.20.0 (MIT) are locked development dependencies. Their compiler/type packages are not shipped in this tarball. Their own notices remain in the npm-installed packages.
 
-Node.js and ripgrep are external prerequisites and are not redistributed here. See https://github.com/nodejs/node and https://github.com/BurntSushi/ripgrep for their source and licensing. AXI/gh-axi documentation informed the interface conventions; repository history does not by itself establish rights to the initial uploaded prototype or skill. Confirm that provenance before selecting the project license.
+Node.js and ripgrep are external prerequisites and are not redistributed here. See https://github.com/nodejs/node and https://github.com/BurntSushi/ripgrep for their source and licensing. AXI/gh-axi documentation informed the interface conventions; repository history does not by itself establish rights to the initial uploaded prototype or skill. The owner confirmed the initial prototype/skill may be distributed under MIT on 2026-10-09; the decision is recorded on Issue #9.

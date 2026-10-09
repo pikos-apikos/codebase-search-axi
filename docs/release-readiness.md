@@ -1,14 +1,14 @@
 # 0.1.0 release readiness — 2026-10-09
 
-Decision record: [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9). This document prepares a candidate; it does not select a license or authorize publication.
+Decision record: [Issue #9](https://github.com/pikos-apikos/codebase-search-axi/issues/9). The owner approved MIT, initial-material distribution rights, and the prepared first GitHub publication route on 2026-10-09; [decision receipt](https://github.com/pikos-apikos/codebase-search-axi/issues/9#issuecomment-6080016390). This document records preparation and remaining execution dependencies; it does not claim completed publication.
 
 ## Candidate and scope
 
 - Implementation baseline: [4513cf5ad994ec0a855112b95a490b5e5a9dbb62](https://github.com/pikos-apikos/codebase-search-axi/commit/4513cf5ad994ec0a855112b95a490b5e5a9dbb62), following merged PR #21.
 - Candidate version: `codebase-search-axi@0.1.0`. Exact preparation PR/head, tarball SHA-256, and verification receipt are recorded on Issue #9 after the preparation commit exists.
 - One Node package, official axi-sdk-js 0.1.13, direct ripgrep, compiled launcher, portable skill, notices, and documentation. No Python bridge, MCP, graph, index, or service.
-- Current state: private repository, `UNLICENSED` project metadata, no tags/releases. The generated tarball is an unpublished review artifact.
-- Proposed first distribution: public GitHub source plus a `v0.1.0` GitHub pre-release with a verified tarball and checksum. npm publication and AXI catalog submission are separate later decisions.
+- Current state at licensing preparation: private repository, MIT project metadata with a root LICENSE, no tags/releases. The rebuilt tarball is an unpublished review artifact.
+- Approved first distribution: public existing GitHub repository with retained history/branches plus a `v0.1.0` GitHub pre-release with verified tarball/checksum, after the original evaluation materials are incorporated and final checks pass. npm publication and AXI catalog submission remain deferred.
 
 ## Verification
 
@@ -41,7 +41,7 @@ This is a bounded audit, not a guarantee that arbitrary secrets cannot exist. It
 
 The root commit `29495b5bb8832ac72881b3e1fb00f6ca749a952b` introduced the prototype and agent skill under the repository owner's GitHub identity without a project license. Subsequent development is recorded in Git history. That record does not establish the source or reuse rights of the initial uploaded material.
 
-Before licensing, the owner must confirm that the original prototype, skill, and subsequent project contributions may be released under the selected license, or identify material requiring separate attribution/replacement. No copyright ownership has been invented and no root LICENSE has been added.
+The owner confirmed that the initial prototype/skill may be distributed under MIT in the 2026-10-09 conversation. The decision is recorded on Issue #9. A root MIT LICENSE attributes project material to Yiannis Miliaresis and contributors; package and lock metadata now declare MIT. Existing third-party attribution remains separate.
 
 Runtime dependency obligations are recorded with their exact installed license texts in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md):
 
@@ -53,13 +53,9 @@ Runtime dependency obligations are recorded with their exact installed license t
 
 Development-only TypeScript, Node types, and undici types are recorded separately; their packages are not shipped. Node and ripgrep are external prerequisites, not redistributed binaries. AXI/gh-axi are cited as interface references; catalog inclusion is not implied.
 
-## License recommendation
+## Selected license
 
-Recommended for owner-confirmed project material: [MIT](https://spdx.org/licenses/MIT.html), to permit reuse of this small wrapper with a short retained copyright/license notice.
-
-Concrete alternative: [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0), if the owner prefers its explicit patent grant and associated redistribution obligations. Deferring publication and retaining UNLICENSED is also a valid disposition.
-
-After selection and provenance confirmation, add the selected LICENSE with owner-approved copyright attribution, update package/lock metadata, rebuild/repack, and record the resulting exact commit and checksum. The current tarball is not the final licensed public release artifact.
+[MIT](https://spdx.org/licenses/MIT.html) is selected. LICENSE and package/lock metadata implement the owner's decision. Rebuild/repack after the final evaluation transfer and record the actual final commit/checksum; do not reuse the earlier UNLICENSED tarball as a release asset.
 
 ## Evaluation and claims
 
@@ -67,15 +63,16 @@ Issue #8's latest receipts record synthetic correctness and limited agent-sessio
 
 Raw reports, usage summaries, and charts remain on Firstmate's machine and were not available for independent inspection here. No quantitative token, speed, or general agent-efficiency improvement is asserted in this release candidate. No new paid runs or private-corpus access occurred during preparation.
 
-## Human decision and execution boundary
+## Recorded decision and remaining execution boundary
 
-Before external publication, record all of the following on Issue #9:
+The explicit owner disposition is on Issue #9: MIT and initial-material distribution rights confirmed; existing repository public with retained history/branches, followed by GitHub v0.1.0 pre-release with rebuilt tarball/checksum; npm and upstream AXI submission deferred. No repeat license/provenance selection is needed.
 
-1. Provenance confirmation (or required attribution/replacement).
-2. Project license and copyright attribution.
-3. Exact reviewed candidate/revision after the license change.
-4. Whether to make this existing repository public, exposing retained history/branches.
-5. Whether to publish the proposed GitHub v0.1.0 pre-release and attach its rebuilt tarball/checksum.
-6. Explicit disposition for npm publication and upstream AXI submission; proposed first release defers both.
+Before executing that publication route:
 
-Do not change visibility, create a tag/release, publish to a registry, rewrite history, or submit upstream before that concrete authorization is recorded. Keep #9 open until the human disposition is recorded; #10 remains blocked until an actual public source revision exists. If publication is deferred, record that disposition and retain the downstream block.
+1. Incorporate the original chart and report tables/limitations from the evaluation host, as described in [docs/evaluation.md](evaluation.md). They are currently unavailable in this preparation session.
+2. Inspect that publishable evidence and any new refs/diff within the history-audit boundary.
+3. Verify the actual final head, package installation and CI, and record the licensed tarball checksum.
+4. Execute the approved visibility/release actions through a capability that supports them. This session's GitHub connector exposes file/PR/merge operations, but no repository-visibility or release-creation/upload mutation.
+5. Record actual public URLs and the exact released revision. No successful action is inferred from an authorization or handoff.
+
+Keep #9 open until its execution/completion record is satisfied. #10 remains blocked until actual public source exists and its separate upstream authorization is recorded. No history rewrite, npm publication, or upstream submission is approved by this first-release decision.
