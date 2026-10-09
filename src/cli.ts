@@ -286,7 +286,13 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   }
 
   const root = resolveRoot(rootRaw);
-  const policy = policyPath ? loadPolicy(policyPath) : { optionalGlobs: [] };
+  let policy: PolicyConfig;
+  try {
+    policy = policyPath ? loadPolicy(policyPath) : { optionalGlobs: [] };
+  } catch (error) {
+    root.cleanup();
+    throw error;
+  }
   const effectiveMax = maxResults ?? policy.maxResults;
   const limit = full ? null : (effectiveMax ?? DEFAULT_LIMIT);
   if (policy.optionalGlobs.length > 0) {
@@ -651,7 +657,13 @@ export async function main(): Promise<void> {
         );
       }
       const parsed = parseCommand(command, args);
-      const temp = new RgBackend(parsed.root, { ...parsed.rgOptions, full: parsed.full });
+      let temp: RgBackend;
+      try {
+        temp = new RgBackend(parsed.root, { ...parsed.rgOptions, full: parsed.full });
+      } catch (error) {
+        parsed.root.cleanup();
+        throw error;
+      }
       backend = temp;
       try {
         const record = await execute(parsed, temp);
