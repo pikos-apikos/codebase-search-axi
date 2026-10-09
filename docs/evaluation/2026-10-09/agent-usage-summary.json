@@ -1,0 +1,18 @@
+{
+  "model": "gpt-5.6-luna",
+  "effort": "medium",
+  "revision": "4513cf5ad994ec0a855112b95a490b5e5a9dbb62",
+  "corpus": "synthetic evaluation-fixture",
+  "metric": "input_tokens + output_tokens from turn.completed; session proxy, not search cost",
+  "observations": [
+    {"task":"implementation/usage","condition":"direct-rg","n":2,"median_total_tokens":39045,"spread":16848,"fair":true},
+    {"task":"implementation/usage","condition":"packaged-wrapper","n":2,"median_total_tokens":30470.5,"spread":89,"fair":true},
+    {"task":"scoped-discovery","condition":"direct-rg","n":1,"median_total_tokens":47565,"spread":0,"fair":false,"note":"one later run omitted mandatory exclusions"},
+    {"task":"scoped-discovery","condition":"packaged-wrapper","n":2,"median_total_tokens":38638,"spread":16488,"fair":true},
+    {"task":"multiline","condition":"direct-rg","n":2,"median_total_tokens":35513,"spread":7366,"fair":true},
+    {"task":"multiline","condition":"packaged-wrapper","n":2,"median_total_tokens":30544,"spread":30,"fair":true},
+    {"task":"overlapping-context","condition":"direct-rg","n":1,"median_total_tokens":24325,"spread":0,"fair":false,"note":"later runs searched parent scope"},
+    {"task":"overlapping-context","condition":"packaged-wrapper","n":2,"median_total_tokens":30640.5,"spread":11,"fair":true}
+  ],
+  "unknowns": ["pricing", "search-process model tokens", "subjective preference"]
+}

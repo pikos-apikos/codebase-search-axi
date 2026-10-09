@@ -1,6 +1,7 @@
 # Evaluation evidence and limitations
 
-Status: the original comparison chart and numerical report tables have **not yet been incorporated**. This document summarizes linked GitHub receipts; it does not substitute invented numbers for the raw evaluation artifacts.
+Status: the curated report, machine-readable summary, and standalone chart are incorporated under [evaluation/2026-10-09](evaluation/2026-10-09/).
+Raw transcripts and prompts remain intentionally excluded.
 
 ## Candidate and comparison
 
@@ -10,7 +11,7 @@ Evaluated implementation: [4513cf5ad994ec0a855112b95a490b5e5a9dbb62](https://git
 | --- | --- | --- |
 | Deterministic search/discovery/context/count checks | [6077710010](https://github.com/pikos-apikos/codebase-search-axi/issues/8#issuecomment-6077710010) | Correctness and completeness agreement under equivalent exclusions |
 | Initial sequential agent comparison | [6077795625](https://github.com/pikos-apikos/codebase-search-axi/issues/8#issuecomment-6077795625) | Eight successful task-condition invocations; correctness agreement |
-| Final bounded usage capture | [6078039886](https://github.com/pikos-apikos/codebase-search-axi/issues/8#issuecomment-6078039886) | 24-success ceiling; raw input/cached/output/reasoning usage retained on evaluation host |
+| Final bounded usage capture | [6078039886](https://github.com/pikos-apikos/codebase-search-axi/issues/8#issuecomment-6078039886) | 24-success ceiling; curated input/cached/output/reasoning usage summary incorporated below |
 | Fairness correction | Same final receipt | Parent-scope/omitted mandatory-deny observations excluded; direct context n=1 and direct discovery n=2 |
 | Latency | Same final receipt | Optional and deferred; no speed claim |
 
@@ -23,16 +24,15 @@ The deterministic fixture coverage includes implementation/usage search, scoped 
 - Fairness corrections reduce already small samples. Comparisons require equal root/task/access policy and equivalent mandatory exclusions.
 - Synthetic correctness agreement does not establish representative large-codebase agent performance.
 - Timing remains deferred; no cold/warm latency or speed advantage is asserted.
-- The original report, standardized usage summary, chart, and raw events remain on Firstmate's evaluation host. This preparation session did not independently inspect those artifacts. Numerical totals, percentages, and chart values are deliberately absent here.
+- The curated report, standardized usage summary, and chart are now checked in under [evaluation/2026-10-09](evaluation/2026-10-09/).
+- Raw events, transcripts, prompts, account/session identifiers, private corpus data, and operational host paths are intentionally omitted.
 
-## Required artifact transfer before release
+## Incorporated evidence
 
-Firstmate's existing evaluation artifacts are:
+The incorporated files preserve the source report's tables, accepted sample counts, task/model/version metadata, usage-field definitions, fairness exclusions, adverse observations, source hashes, and evaluated revision.
+The chart is a portable SVG and its values agree with the JSON summary.
+The source report's local operational paths were replaced with an explicit omitted-raw scope.
+No missing metric was inferred and no broad improvement is claimed.
 
-- `data/codebase-search-axi-issue-8-evaluation/report.md`
-- `data/codebase-search-axi-issue-8-evaluation/comparison-chart.svg`
-- `data/codebase-search-axi-issue-8-evaluation/agent-usage-summary.json`
-
-Transfer the original chart, report tables/limitations, and their summary into a reviewable repository change. Preserve exclusions, accepted sample counts, task/model/version metadata, definitions of usage fields, and adverse observations. Check the chart against the summary and inspect publishable content before committing. Record source hashes and the evaluated revision. Do not infer missing metrics or claim broad improvements.
-
-Release publication remains pending that concrete evidence incorporation and the supported visibility/release action. MIT and initial-material distribution rights are already approved; they do not require another selection.
+Release publication remains pending the final artifact-branch checks and the approved visibility/release action.
+MIT and initial-material distribution rights are already approved; they do not require another selection.
