@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Bounded, read-only codebase search CLI for agents, built around ripgrep with axi-sdk-js.",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "bin": {
     "codebase-search": "bin/codebase-search"
   },
@@ -11,7 +11,13 @@
     "bin",
     "dist",
     "skills",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/v1-contract.md",
+    "docs/release-readiness.md",
+    "LICENSE",
+    "docs/evaluation.md"
   ],
   "engines": {
     "node": ">=20"
