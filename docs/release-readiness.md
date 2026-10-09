@@ -61,7 +61,7 @@ Development-only TypeScript, Node types, and undici types are recorded separatel
 
 Issue #8's latest receipts record synthetic correctness and limited agent-session usage evidence. Timing is explicitly deferred and does not block preparation. Parent-scope/mandatory-exclusion fairness corrections and small comparison samples limit generalization.
 
-Raw reports, usage summaries, and charts remain on Firstmate's machine and were not available for independent inspection here. No quantitative token, speed, or general agent-efficiency improvement is asserted in this release candidate. No new paid runs or private-corpus access occurred during preparation.
+The curated report, usage summary, and chart are incorporated under [docs/evaluation/2026-10-09](evaluation/2026-10-09/); raw reports, transcripts, prompts, and private corpus data remain excluded. No quantitative token, speed, or general agent-efficiency improvement is asserted in this release candidate. No new paid runs or private-corpus access occurred during preparation.
 
 ## Recorded decision and remaining execution boundary
 
@@ -69,10 +69,10 @@ The explicit owner disposition is on Issue #9: MIT and initial-material distribu
 
 Before executing that publication route:
 
-1. Incorporate the original chart and report tables/limitations from the evaluation host, as described in [docs/evaluation.md](evaluation.md). They are currently unavailable in this preparation session.
-2. Inspect that publishable evidence and any new refs/diff within the history-audit boundary.
+1. Review the incorporated chart, report tables/limitations, and source-hash manifest in [docs/evaluation.md](evaluation.md).
+2. Inspect the publishable evidence and any new refs/diff within the history-audit boundary.
 3. Verify the actual final head, package installation and CI, and record the licensed tarball checksum.
-4. Execute the approved visibility/release actions through a capability that supports them. This session's GitHub connector exposes file/PR/merge operations, but no repository-visibility or release-creation/upload mutation.
+4. Execute the approved visibility/release actions through the authorized GitHub capability.
 5. Record actual public URLs and the exact released revision. No successful action is inferred from an authorization or handoff.
 
 Keep #9 open until its execution/completion record is satisfied. #10 remains blocked until actual public source exists and its separate upstream authorization is recorded. No history rewrite, npm publication, or upstream submission is approved by this first-release decision.

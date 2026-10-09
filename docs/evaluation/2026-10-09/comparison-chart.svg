@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500" viewBox="0 0 900 500" role="img" aria-labelledby="title desc">
+  <title id="title">Agent session token proxy comparison</title>
+  <desc id="desc">Median Codex input plus output tokens for synthetic task observations. Direct context and discovery samples are flagged as limited.</desc>
+  <style>text{font-family:Arial,sans-serif;fill:#17202a}.axis{stroke:#607080}.direct{fill:#5b8ff9}.wrap{fill:#61c0bf}.limited{stroke:#c0392b;stroke-width:3;stroke-dasharray:6 4}.small{font-size:12px}.label{font-size:14px}.title{font-size:20px;font-weight:bold}</style>
+  <text x="40" y="32" class="title">Agent session token proxy (median total; lower is not a search-cost claim)</text>
+  <text x="40" y="52" class="small">gpt-5.6-luna / medium · synthetic fixture · raw turn.completed events · n shown; red outline = limited/fairness-corrected sample</text>
+  <line x1="210" y1="420" x2="850" y2="420" class="axis"/><line x1="210" y1="80" x2="210" y2="420" class="axis"/>
+  <g class="small"><text x="200" y="440">0</text><text x="350" y="440">10k</text><text x="500" y="440">20k</text><text x="650" y="440">30k</text><text x="800" y="440">40k</text></g>
+  <text x="40" y="112" class="label">implementation</text><rect x="210" y="92" width="586" height="22" class="direct"/><rect x="210" y="118" width="457" height="22" class="wrap"/><text x="805" y="109" class="small">direct 39,045 (n=2)</text><text x="676" y="135" class="small">wrapper 30,471 (n=2)</text>
+  <text x="40" y="190" class="label">discovery</text><rect x="210" y="170" width="713" height="22" class="direct limited"/><rect x="210" y="196" width="580" height="22" class="wrap"/><text x="40" y="232" class="small">direct n=1 valid; second omitted mandatory excludes</text><text x="795" y="187" class="small">47,565</text><text x="797" y="213" class="small">38,638 (n=2)</text>
+  <text x="40" y="280" class="label">multiline</text><rect x="210" y="260" width="533" height="22" class="direct"/><rect x="210" y="286" width="458" height="22" class="wrap"/><text x="750" y="277" class="small">35,513 (n=2)</text><text x="675" y="303" class="small">30,544 (n=2)</text>
+  <text x="40" y="360" class="label">context</text><rect x="210" y="340" width="365" height="22" class="direct limited"/><rect x="210" y="366" width="460" height="22" class="wrap"/><text x="582" y="357" class="small">24,325 (n=1)</text><text x="677" y="383" class="small">30,641 (n=2)</text>
+  <rect x="40" y="458" width="14" height="14" class="direct"/><text x="60" y="470" class="small">direct rg</text><rect x="130" y="458" width="14" height="14" class="wrap"/><text x="150" y="470" class="small">packaged wrapper</text><rect x="250" y="458" width="14" height="14" class="limited"/><text x="270" y="470" class="small">limited sample</text>
+</svg>
