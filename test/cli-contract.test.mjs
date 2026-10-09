@@ -472,6 +472,47 @@ test("explicit TOML policy is loaded, validated, and format aliases JSON", async
     writeFileSync(malformed, 'optional_globs = ["\\u12"]\n');
     const badEscape = await runCli(["files", "--root", root, "--policy", malformed]);
     assert.equal(badEscape.code, 1);
+    writeFileSync(malformed, 'optional_globs = ["one"\n  "two"]\n');
+    const missingComma = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(missingComma.code, 1);
+    writeFileSync(malformed, 'optional_globs = "one\n two"\n');
+    const multilineBasic = await runCli(["files", "--root", root, "--policy", malformed]);
+    assert.equal(multilineBasic.code, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("CLI globs override policy globs while mandatory denies remain last", async () => {
+  const root = makeRoot();
+  const policy = join(root, "policy.toml");
+  try {
+    write(root, "dist/allowed.txt", "needle\n");
+    write(root, "secret.key", "needle\n");
+    writeFileSync(policy, 'optional_globs = ["!**/dist/**"]\n');
+    const result = await runCli([
+      "files", "--root", root, "--policy", policy, "--glob", "**/dist/**", "--full",
+    ]);
+    assert.equal(result.code, 0);
+    assert.deepEqual(result.data.files, ["dist/allowed.txt"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bounded search, context, and count preserve non-UTF8 paths", async () => {
+  const root = makeRoot();
+  try {
+    writeFileSync(Buffer.concat([Buffer.from(root), Buffer.from([0x2f, 0x30, 0x2d, 0xff, 0x2e, 0x74, 0x78, 0x74])]), "needle\n");
+    for (const command of ["search", "context", "count"]) {
+      const args = [command, ...(command === "files" ? [] : ["needle"]), "--root", root, "--scan-max-files", "1"];
+      const result = await runCli(args);
+      assert.equal(result.code, 0, command);
+      assert.equal(result.data.complete.scan, true, command);
+      const records = command === "count" ? result.data.counts : result.data.matches;
+      const nonUtf8Name = Buffer.from([0x30, 0x2d, 0xff, 0x2e, 0x74, 0x78, 0x74]).toString("base64");
+      assert.ok(records.some((item) => item.path?.bytes === nonUtf8Name), command);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

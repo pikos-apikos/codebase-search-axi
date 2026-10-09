@@ -3,10 +3,9 @@
  * metrics, preserve byte fidelity, enforce display limits truthfully, and
  * calculate completeness. Never reparses patterns and never launches rg.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { RgError, type RgBackend } from "./backend.js";
 import { toRootRelative, type ResolvedRoot } from "./policy.js";
-import { isValidUtf8 } from "./argv.js";
 
 /** A fidelity-preserving value: a UTF-8 string or lossless padded base64. */
 export type Value = string | { bytes: string };
@@ -93,27 +92,28 @@ async function scanPaths(
   backend: RgBackend,
   scan: ScanBounds,
 ): Promise<{ paths: string[] | undefined; complete: boolean }> {
-  if (scan.maxFiles === undefined && scan.maxBytes === undefined) {
-    return { paths: undefined, complete: true };
+  // Bounds are enforced while consuming rg's event stream so raw, non-UTF8
+  // paths remain eligible. Pre-discovery cannot pass those names through
+  // Node's string argv API without losing bytes.
+  void backend;
+  void scan;
+  return { paths: undefined, complete: true };
+}
+
+function scanPathKey(data: Record<string, unknown>): string {
+  const path = data["path"] as ByteValue | undefined;
+  if (path === undefined) throw invalidResult();
+  return JSON.stringify(encoded(rgBytes(path)));
+}
+
+function scanPathSize(data: Record<string, unknown>): number {
+  const path = data["path"] as ByteValue | undefined;
+  if (path === undefined) throw invalidResult();
+  try {
+    return statSync(rgBytes(path)).size;
+  } catch {
+    return 0;
   }
-  const paths: string[] = [];
-  let hasUnsafePath = false;
-  let seenFiles = 0;
-  let bytes = 0;
-  for await (const raw of backend.files()) {
-    if (scan.maxFiles !== undefined && seenFiles >= scan.maxFiles) {
-      return { paths, complete: false };
-    }
-    const size = readFileSync(raw).length;
-    if (scan.maxBytes !== undefined && bytes + size > scan.maxBytes) {
-      return { paths, complete: false };
-    }
-    bytes += size;
-    seenFiles += 1;
-    if (isValidUtf8(raw)) paths.push(raw.toString("utf8"));
-    else hasUnsafePath = true;
-  }
-  return { paths: hasUnsafePath ? undefined : paths, complete: true };
 }
 
 function envelope(
@@ -163,7 +163,12 @@ export async function files(
       scanComplete = false;
       break;
     }
-    const size = readFileSync(raw).length;
+    let size: number;
+    try {
+      size = statSync(raw).size;
+    } catch {
+      continue;
+    }
     if (scan.maxBytes !== undefined && bytes + size > scan.maxBytes) {
       scanComplete = false;
       break;
@@ -188,15 +193,37 @@ export async function matches(
   const values: MatchRecord[] = [];
   let total = 0;
   const selected = await scanPaths(backend, scan);
-  const scanComplete = selected.complete;
+  let scanComplete = selected.complete;
   if (selected.paths !== undefined && selected.paths.length === 0) return envelope(command, "matches", values, total, limit, scanComplete);
   const previous: Array<[number, Value]> = [];
   let following: MatchRecord[] = [];
   const emittedContext = new Set<string>();
+  const seenScanPaths = new Set<string>();
+  let scanBytes = 0;
 
   for await (const event of backend.events(pattern, before, after, selected.paths)) {
     const kind = event.type;
-    if (kind === "begin" || kind === "end") {
+    if (kind === "begin") {
+      const data = event.data as Record<string, unknown>;
+      const key = scanPathKey(data);
+      if (!seenScanPaths.has(key)) {
+        if (scan.maxFiles !== undefined && seenScanPaths.size >= scan.maxFiles) {
+          scanComplete = false;
+          break;
+        }
+        const size = scanPathSize(data);
+        if (scan.maxBytes !== undefined && scanBytes + size > scan.maxBytes) {
+          scanComplete = false;
+          break;
+        }
+        seenScanPaths.add(key);
+        scanBytes += size;
+      }
+      previous.length = 0;
+      following = [];
+      continue;
+    }
+    if (kind === "end") {
       previous.length = 0;
       following = [];
       continue;
@@ -291,7 +318,28 @@ export async function count(
       ...(scanComplete ? {} : { help: "Use --full or raise scan bounds to scan all results within the existing exclusions." }),
     };
   }
+  const seenScanPaths = new Set<string>();
+  let scanBytes = 0;
+  let boundedComplete = scanComplete;
   for await (const event of backend.events(pattern, 0, 0, selected.paths)) {
+    if (event.type === "begin") {
+      const data = event.data as Record<string, unknown>;
+      const key = scanPathKey(data);
+      if (!seenScanPaths.has(key)) {
+        if (scan.maxFiles !== undefined && seenScanPaths.size >= scan.maxFiles) {
+          boundedComplete = false;
+          break;
+        }
+        const size = scanPathSize(data);
+        if (scan.maxBytes !== undefined && scanBytes + size > scan.maxBytes) {
+          boundedComplete = false;
+          break;
+        }
+        seenScanPaths.add(key);
+        scanBytes += size;
+      }
+      continue;
+    }
     if (event.type !== "match") continue;
     const data = event.data as Record<string, unknown>;
     const path = eventPath(data, root);
@@ -319,11 +367,11 @@ export async function count(
     counts: values,
     count: values.length,
     returned: values.length,
-    ...(scanComplete ? { total } : {}),
+    ...(boundedComplete ? { total } : {}),
     matched_files: byPath.size,
     bounded: limit !== null,
-    complete: { scan: scanComplete, display: scanComplete && values.length === byPath.size },
-    ...(scanComplete && values.length === byPath.size
+    complete: { scan: boundedComplete, display: boundedComplete && values.length === byPath.size },
+    ...(boundedComplete && values.length === byPath.size
       ? {}
       : { help: "Use --full or raise scan bounds to scan all results within the existing exclusions." }),
   };
@@ -345,8 +393,14 @@ export async function metrics(
     if (scan.maxFiles !== undefined && fileCount >= scan.maxFiles) { scanComplete = false; break; }
     // rg reports absolute paths under the (absolute) search path; the raw
     // bytes are a valid filesystem path, including non-UTF-8 components.
+    let size: number;
+    try {
+      size = statSync(raw).size;
+    } catch {
+      continue;
+    }
+    if (scan.maxBytes !== undefined && scanBytes + size > scan.maxBytes) { scanComplete = false; break; }
     const content = readFileSync(raw);
-    if (scan.maxBytes !== undefined && scanBytes + content.length > scan.maxBytes) { scanComplete = false; break; }
     scanBytes += content.length;
     fileCount += 1;
     byteCount += content.length;

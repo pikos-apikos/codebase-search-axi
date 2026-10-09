@@ -124,6 +124,7 @@ function decodeBasicString(value: string): string {
   let output = "";
   for (let i = 0; i < value.length; i += 1) {
     if (value[i] !== "\\") {
+      if (value[i] === '"') throw invalidPolicy();
       output += value[i];
       continue;
     }

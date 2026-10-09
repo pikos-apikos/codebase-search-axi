@@ -285,7 +285,9 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
   const policy = policyPath ? loadPolicy(policyPath) : { optionalGlobs: [] };
   const effectiveMax = maxResults ?? policy.maxResults;
   const limit = full ? null : (effectiveMax ?? DEFAULT_LIMIT);
-  if (policy.optionalGlobs.length > 0) rgOptions.globs?.push(...policy.optionalGlobs);
+  if (policy.optionalGlobs.length > 0) {
+    rgOptions.globs = [...policy.optionalGlobs, ...(rgOptions.globs ?? [])];
+  }
   const parsed: ParsedCommand = {
     command,
     root,
