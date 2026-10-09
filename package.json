@@ -11,7 +11,11 @@
     "bin",
     "dist",
     "skills",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/v1-contract.md",
+    "docs/release-readiness.md"
   ],
   "engines": {
     "node": ">=20"
