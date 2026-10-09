@@ -9,7 +9,7 @@ A bounded, read-only codebase search CLI for agents, built around [ripgrep](http
 It provides compact TOON output by default, with explicit JSON output for file discovery, pattern search, surrounding context, per-file counts, and basic repository metrics.
 Common generated directories and sensitive files are excluded by default.
 
-The planned v1 search, policy, output, and component contract is documented in
+The v1 search, policy, output, and component contract is documented in
 [`docs/v1-contract.md`](docs/v1-contract.md).
 
 ## Usage

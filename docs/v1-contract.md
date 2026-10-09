@@ -1,7 +1,7 @@
 # codebase-search v1 contract
 
-Status: normative design for the next implementation slices. This is a
-contract document, not a second search implementation.
+Status: normative v1 contract. This is a contract document, not a second
+search implementation.
 
 ## Scope and baseline
 
@@ -45,8 +45,8 @@ its former gaps are not current interface behavior:
   Non-UTF8 paths are likewise not decoded by the match adapter. This is a
   result-fidelity defect tracked by #3, not an empty match.
 
-These defects are evidence for the follow-on implementation tickets, not
-changes made by this contract ticket.
+These observations describe the historical baseline only; they are not current
+interface behavior or open gaps in the implemented v1 surface.
 
 ## Commands and matching
 
