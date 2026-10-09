@@ -276,7 +276,8 @@ test("test_non_utf8_root_does_not_corrupt_relative_paths", async (t) => {
   const script = `ROOT="$BASE/root-$(printf '\\xff')"
 "$BIN" search needle --root "$ROOT" --full --json`;
   const proc = spawnSync("bash", ["-c", script], {
-    env: { ...process.env, BASE: base, BIN },
+    // Keep the POSIX bridge byte-preserving even on UTF-8 locales.
+    env: { ...process.env, LC_ALL: "C", BASE: base, BIN },
     encoding: "utf-8",
   });
   assert.equal(proc.status, 0, proc.stderr);

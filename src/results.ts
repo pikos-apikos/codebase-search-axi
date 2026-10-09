@@ -93,6 +93,9 @@ async function scanPaths(
   backend: RgBackend,
   scan: ScanBounds,
 ): Promise<{ paths: string[] | undefined; complete: boolean }> {
+  if (scan.maxFiles === undefined && scan.maxBytes === undefined) {
+    return { paths: undefined, complete: true };
+  }
   const paths: string[] = [];
   let hasUnsafePath = false;
   let seenFiles = 0;
