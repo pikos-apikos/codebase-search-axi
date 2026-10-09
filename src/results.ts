@@ -202,14 +202,24 @@ export async function matches(
   const previous: Array<[number, Value]> = [];
   let following: MatchRecord[] = [];
   const emittedContext = new Set<string>();
+  let currentValueStart = 0;
+  let currentMatchCount = 0;
   for await (const event of backend.events(pattern, before, after, selected.paths)) {
     const kind = event.type;
     if (kind === "begin") {
+      currentValueStart = values.length;
+      currentMatchCount = 0;
       previous.length = 0;
       following = [];
       continue;
     }
     if (kind === "end") {
+      const data = event.data as Record<string, unknown>;
+      if (data["binary_offset"] !== null && data["binary_offset"] !== undefined) {
+        values.splice(currentValueStart);
+        total -= currentMatchCount;
+      }
+      currentMatchCount = 0;
       previous.length = 0;
       following = [];
       continue;
@@ -230,6 +240,7 @@ export async function matches(
     }
     if (kind === "match") {
       total += 1;
+      currentMatchCount += 1;
       if (limit === null || values.length < limit) {
         const subRaw = (data["submatches"] as Array<Record<string, unknown>>) ?? [];
         if (subRaw.length === 0) {
@@ -305,8 +316,23 @@ export async function count(
     };
   }
   let boundedComplete = scanComplete;
+  let currentPathKey: string | undefined;
   for await (const event of backend.events(pattern, 0, 0, selected.paths)) {
     if (event.type === "begin") {
+      const data = event.data as Record<string, unknown>;
+      currentPathKey = JSON.stringify(eventPath(data, root));
+      continue;
+    }
+    if (event.type === "end") {
+      const data = event.data as Record<string, unknown>;
+      if (data["binary_offset"] !== null && data["binary_offset"] !== undefined && currentPathKey !== undefined) {
+        const item = byPath.get(currentPathKey);
+        if (item) {
+          total -= item.count;
+          byPath.delete(currentPathKey);
+        }
+      }
+      currentPathKey = undefined;
       continue;
     }
     if (event.type !== "match") continue;
