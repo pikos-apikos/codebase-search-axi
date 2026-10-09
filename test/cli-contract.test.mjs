@@ -19,6 +19,14 @@ import { execFileSync } from "node:child_process";
 const BIN = resolve(import.meta.dirname, "../bin/codebase-search");
 const NODE = process.execPath;
 const ORIGINAL_PATH = process.env.PATH ?? "";
+const HAS_STRACE = (() => {
+  try {
+    execFileSync("strace", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function makeRoot() {
   return mkdtempSync(join(tmpdir(), "codebase-search-"));
@@ -471,7 +479,7 @@ test("scan bounds stop discovery and report incomplete scans", async () => {
   }
 });
 
-test("scan byte bounds avoid content reads and files discovery survives EACCES", async () => {
+test("scan byte bounds avoid content reads and files discovery survives EACCES", { skip: !HAS_STRACE ? "strace is unavailable" : false }, async () => {
   const root = makeRoot();
   const oversized = join(root, "oversized.txt");
   try {
