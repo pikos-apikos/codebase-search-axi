@@ -18,9 +18,7 @@ import {
   type AxiCliOptions,
 } from "axi-sdk-js";
 import { encode as encodeToon } from "@toon-format/toon";
-import { realpathSync } from "node:fs";
-import { userInfo } from "node:os";
-import { resolve } from "node:path";
+import { extname } from "node:path";
 import { RgBackend, reap, RgError, type RgOptions } from "./backend.js";
 import { count, files, matches, metrics } from "./results.js";
 import { loadPolicy, resolveRoot, type PolicyConfig, type ResolvedRoot } from "./policy.js";
@@ -30,17 +28,6 @@ import { VERSION } from "./version.js";
 const DEFAULT_LIMIT = 50;
 const DEFAULT_MAX_TEXT_BYTES = 4096;
 const DEFAULT_MAX_BYTES = 65536;
-function isPersonalHome(homeDir: string): boolean {
-  if (homeDir === "~" || homeDir === "$HOME" || homeDir === "${HOME}") return true;
-  const personalHome = userInfo().homedir;
-  if (resolve(homeDir) === resolve(personalHome)) return true;
-  try {
-    return realpathSync(homeDir) === realpathSync(personalHome);
-  } catch {
-    return false;
-  }
-}
-
 interface ParsedCommand {
   command: "files" | "search" | "context" | "metrics" | "count";
   patternBytes?: Buffer;
@@ -306,7 +293,7 @@ function parseCommand(command: CommandName, args: string[]): ParsedCommand {
     json: format === "json" || json,
     rgOptions,
     countMatches,
-    fields,
+    fields: fields.length === 0 && command === "search" ? ["path", "line", "column", "text"] : fields,
     policy,
     scanMaxFiles: full ? undefined : scanMaxFiles ?? policy.scanMaxFiles,
     scanMaxBytes: full ? undefined : scanMaxBytes ?? policy.scanMaxBytes,
@@ -328,7 +315,19 @@ const USAGE_ERROR_CODES: ReadonlySet<string> = new Set([
   "VALIDATION_ERROR",
 ]);
 
-function formatJsonError(error: unknown): { output: string; exitCode: number } {
+function commandFlags(command: string): string {
+  const common = "--root PATH, --policy PATH, --max-results N, --scan-max-files N, --scan-max-bytes N, --max-text-bytes N, --max-bytes N, --full, --json, --format toon|json, --fields FIELD[,FIELD...]";
+  if (command === "setup") return "--home PATH, --json";
+  if (command === "files") return `${common}, --type TYPE, --type-not TYPE, --glob GLOB, --hidden, --no-ignore`;
+  if (command === "metrics") return `${common}, --type TYPE, --type-not TYPE, --glob GLOB, --hidden, --no-ignore`;
+  const matching = `${common}, --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --hidden, --no-ignore, --multiline, --multiline-dotall, --pcre2`;
+  if (command === "context") return `${matching}, --before N, --after N`;
+  if (command === "count") return `${matching}, --count-matches`;
+  if (command === "search") return matching;
+  return "files, search, context, count, metrics, setup";
+}
+
+function formatCliError(error: unknown): { output: string; exitCode: number } {
   const axi =
     error instanceof AxiError
       ? error
@@ -342,10 +341,19 @@ function formatJsonError(error: unknown): { output: string; exitCode: number } {
   if (error instanceof RgError && error.diagnostics && error.diagnostics.length > 0) {
     process.stderr.write(error.diagnostics);
   }
-  const exitCode = USAGE_ERROR_CODES.has(axi.code) ? 2 : 1;
-  const record: Record<string, unknown> = { status: "error", error: axi.code, message: axi.message };
+  const usage = USAGE_ERROR_CODES.has(axi.code);
+  const exitCode = usage ? 2 : 1;
+  const command = process.argv.slice(2).find((arg) =>
+    ["files", "search", "context", "count", "metrics", "setup"].includes(arg),
+  ) ?? "";
+  const record: Record<string, unknown> = {
+    status: "error",
+    error: axi.code,
+    message: axi.message,
+    ...(usage ? { help: `Valid ${command || "command"} flags: ${commandFlags(command)}` } : {}),
+  };
   return {
-    output: `${JSON.stringify(record)}\n`,
+    output: `${outputJson ? JSON.stringify(record) : encodeToon(record)}\n`,
     exitCode,
   };
 }
@@ -425,7 +433,6 @@ function setupCommand(args: string[]): Record<string, unknown> | string {
     } else throw usageError(`unrecognized argument: ${arg}`);
   }
   if (!homeDir) throw usageError("--home PATH is required for setup hooks");
-  if (isPersonalHome(homeDir)) throw usageError("--home must be an isolated home");
   const hookErrors: string[] = [];
   const options = { scope: "user" as const, homeDir, onError: (message: string) => hookErrors.push(message) };
   let record: Record<string, unknown>;
@@ -595,6 +602,49 @@ function projectFields(command: CommandName, record: Record<string, unknown>, fi
   return projected;
 }
 
+function addNextStep(record: Record<string, unknown>, command: CommandName): void {
+  const complete = record.complete as { scan?: boolean; display?: boolean } | undefined;
+  const next = command === "files"
+    ? "search PATTERN"
+    : command === "search"
+      ? "context PATTERN"
+      : command === "context"
+        ? "adjust --before/--after or --fields"
+        : undefined;
+  if (!next) return;
+  const bound = complete && (!complete.scan || !complete.display)
+    ? "; raise --max-results/--max-bytes"
+    : "";
+  record.help = `${next}${bound}`;
+}
+
+async function workspaceHome(): Promise<Record<string, unknown>> {
+  const root = resolveRoot(Buffer.from(process.cwd(), "utf-8"));
+  let backend: RgBackend | undefined;
+  try {
+    backend = new RgBackend(root);
+    const result = await files(backend, root, 200, { maxFiles: 200, maxBytes: 4 * 1024 * 1024 });
+    const counts = new Map<string, number>();
+    for (const entry of (result.files as Array<string | { bytes: string }>)) {
+      const name = typeof entry === "string" ? entry : Buffer.from(entry.bytes, "base64").toString("utf-8");
+      const type = extname(name) || "[no extension]";
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+    }
+    const topFileTypes = [...counts].map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type)).slice(0, 5);
+    return {
+      root: root.searchPath,
+      file_count: result.returned,
+      top_file_types: topFileTypes,
+      bounded: true,
+      complete: result.complete,
+      help: "Use files to browse paths, search PATTERN to find matches, or metrics for a bounded workspace summary.",
+    };
+  } finally {
+    root.cleanup();
+  }
+}
+
 function execute(
   parsed: ParsedCommand,
   backend: RgBackend,
@@ -677,6 +727,7 @@ export async function main(): Promise<void> {
           );
         }
         applyTextBound(record, parsed.maxTextBytes, parsed.fields);
+        addNextStep(record, parsed.command);
         const projected = projectFields(parsed.command, record, parsed.fields);
         applyOutputBound(projected, parsed.maxBytes, parsed.json);
         return parsed.json ? JSON.stringify(projected) : projected;
@@ -698,7 +749,7 @@ export async function main(): Promise<void> {
   };
 
   const argv = process.argv.slice(2);
-  outputJson = hasJsonSelector(argv.slice(1));
+  outputJson = hasJsonSelector(argv);
 
   const options: AxiCliOptions = {
     description: "Bounded, read-only codebase discovery and search.",
@@ -706,26 +757,30 @@ export async function main(): Promise<void> {
     topLevelHelp: HELP,
     getCommandHelp: (command: string) =>
       command in commands ? commandHelp(command) : undefined,
-    home: async () => ({
-      orientation: "bounded, read-only ripgrep discovery under mandatory exclusions",
-      commands: ["files", "search", "context", "count", "metrics"],
-      help: [
-        "Run `codebase-search --help` for commands.",
-        "Use --full only when an unbounded scan is intended.",
-      ],
-    }),
+    home: workspaceHome,
     commands,
   };
-  if (outputJson) {
-    options.renderUnknownCommand = (command: string) =>
-      `${JSON.stringify({
-        status: "error",
-        error: "invalid_command",
-        message: `Unknown command: ${command}`,
-      })}\n`;
-    options.formatError = formatJsonError;
-  }
+  options.renderUnknownCommand = (command: string) => {
+    const record = {
+      status: "error",
+      error: "invalid_command",
+      message: `Unknown command: ${command}`,
+      help: `Valid commands: ${commandFlags("")}`,
+    };
+    return `${outputJson ? JSON.stringify(record) : encodeToon(record)}\n`;
+  };
+  options.formatError = formatCliError;
   try {
+    if (
+      argv[0]?.startsWith("-") &&
+      !(argv.length === 1 && argv[0] === "--help") &&
+      !(["-v", "-V", "--version"].includes(argv[0]) && argv.length === 1)
+    ) {
+      const formatted = formatCliError(usageError("Flags must follow the command."));
+      process.stdout.write(formatted.output);
+      process.exitCode = formatted.exitCode;
+      return;
+    }
     await runAxiCli(options);
   } finally {
     process.removeListener("SIGINT", handler);

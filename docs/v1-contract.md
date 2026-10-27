@@ -167,8 +167,9 @@ for the scan itself and default to unlimited.
 the scan completes or an explicit scan bound/error stops it. A truncated text
 field remains present with `text_bytes` and `text_truncated: true`; matching
 positions are calculated before display truncation. A response that omits
-records due to a display bound sets `complete.display: false` and includes an
-actionable `help` hint.
+records due to a display bound sets `complete.display: false` and includes a
+command-specific `help` hint. Search, files, and context also include a
+next-step hint when their display is complete.
 
 `--max-text-bytes` measures the decoded content bytes per record, summed over
 `text`, matched spans, and all context lines that are emitted, including line
@@ -248,16 +249,19 @@ truncated large text is represented rather than silently omitted. `--full` is
 the explicit escape hatch for complete display.
 
 The executable identifies itself as `codebase-search` with a concise
-description. With no arguments it succeeds with compact workspace orientation
-(root, commands, and useful next steps) under finite bounds, without an
-undisclosed expensive full scan. Each command provides concise `--help`.
+description. With no arguments it returns the current root, a file count
+capped at 200 files and 4 MiB, and the five most common file types. This live
+workspace summary remains under the mandatory and optional path policy. Each
+command provides concise `--help`.
 Bare `-v`, `-V`, and `--version` print the version and exit successfully without
 scanning or invoking rg.
 
-`--fields FIELD,...` selects result-record fields in either format. Unknown
-fields are usage errors; projection does not change matching, counts, or scan
-completeness. Envelope completeness, truncation metadata, and encoding tags
-needed to interpret selected values remain present.
+`search` defaults to the `path`, `line`, `column`, and `text` fields; use
+`--fields FIELD,...` to select other result-record fields, including submatches
+and span details. Other commands retain their command-specific default records.
+Unknown fields are usage errors; projection does not change matching, counts,
+or scan completeness. Envelope completeness, truncation metadata, and encoding
+tags needed to interpret selected values remain present.
 
 All normal and error responses are structured on stdout. Stderr is reserved for
 diagnostics and must not contain data needed to interpret stdout. Exit codes
@@ -265,8 +269,10 @@ are `0` for success (including an empty result), `1` for a valid request that
 cannot be completed (`invalid_root`, `invalid_policy`, `invalid_pattern`,
 `unsupported_feature`, `ripgrep_failed`, or `ripgrep_unavailable`), and `2`
 for usage errors such as unknown commands, unknown flags, conflicting flags,
-or invalid bounds. Errors include an actionable `message` and, where useful, a
-`help` hint; raw ripgrep stack/diagnostic text and backend names are not leaked.
+or invalid bounds. Usage errors have the same structured envelope in TOON and
+JSON and include valid flags for the selected command. Errors include an
+actionable `message` and, where useful, a `help` hint; raw ripgrep
+stack/diagnostic text and backend names are not leaked.
 No partial success is emitted after a scan error.
 
 ## Package seams

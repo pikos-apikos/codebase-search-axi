@@ -111,6 +111,8 @@ test("test_dash_pattern_is_a_value", async (t) => {
     "--root",
     root,
     "--full",
+    "--fields",
+    "path,line,column,text,submatches",
     "--",
     "-needle",
   ]);
@@ -215,6 +217,8 @@ test("test_non_utf8_submatch_bytes_are_lossless", async (t) => {
     "--root",
     root,
     "--full",
+    "--fields",
+    "path,line,column,text,submatches",
     "--",
     "(?-u:\\xFF)",
   ]);
@@ -234,7 +238,7 @@ test("test_matching_lines_larger_than_read_chunk_preserve_text_and_offsets", asy
   for (const suffix of [Buffer.from(" tail ", "utf-8"), Buffer.from([0xff, 0x20, 0x74, 0x61, 0x69, 0x6c, 0x20])]) {
     const line = Buffer.concat([bigPrefix, Buffer.from("needle", "utf-8"), suffix, Buffer.from("needle\r\n", "latin1")]);
     writeRaw(root, Buffer.from("allowed.txt", "utf-8"), Buffer.concat([line, Buffer.from("needle\n", "latin1")]));
-  const { data, code } = await runCli(["search", "needle", "--root", root, "--full"]);
+  const { data, code } = await runCli(["search", "needle", "--root", root, "--full", "--fields", "path,line,column,text,submatches"]);
     assert.equal(code, 0);
     assert.deepEqual(data.complete, { scan: true, display: true });
     assert.equal(data.total, 2);
@@ -512,7 +516,7 @@ test("test_ordinary_search_agrees_with_direct_rg", async (t) => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   write(root, "allowed.txt", "é needle needle\nother\nneedle\r\n");
-  const raw = await runCli(["search", "needle", "--root", root, "--max-results", "10"]);
+  const raw = await runCli(["search", "needle", "--root", root, "--max-results", "10", "--fields", "path,line,column,text,submatches"]);
   assert.equal(raw.code, 0);
   const rgOut = await new Promise((res, rej) => {
     const c = spawn("rg", ["--no-config", "--json", "--line-number", "--column", "-e", "needle", "--", root]);

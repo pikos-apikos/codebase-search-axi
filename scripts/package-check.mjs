@@ -20,11 +20,22 @@ const run = (args, env = {}) => {
   return result.stdout;
 };
 const orientation = run([]);
-if (!orientation.includes("orientation:")) throw new Error("installed executable did not return orientation");
+for (const field of ["root:", "file_count:", "top_file_types", "bounded: true"]) {
+  if (!orientation.includes(field)) throw new Error(`installed executable bare summary did not include ${field}`);
+}
 const rootFixture = mkdtempSync(join(tmpdir(), "codebase-search-fixture-"));
 writeFileSync(join(rootFixture, "sample.txt"), "needle\n");
 const search = run(["search", "needle", "--root", rootFixture, "--full", "--json"]);
 if (!JSON.parse(search).matches?.length) throw new Error("installed executable search failed");
+for (const args of [["search", "needle", "--unknown"], ["search", "needle", "--unknown", "--json"]]) {
+  const usage = spawnSync(bin, args, { cwd: temp, env: process.env, encoding: "utf8" });
+  if (usage.status !== 2) throw new Error(`installed executable usage error did not exit 2: ${args.join(" ")}`);
+  const record = args.includes("--json") ? JSON.parse(usage.stdout) : undefined;
+  const output = args.includes("--json") ? JSON.stringify(record) : usage.stdout;
+  if (!output.includes("invalid_command") || !output.includes("--fixed-strings")) {
+    throw new Error(`installed executable usage error omitted structured command flags: ${args.join(" ")}`);
+  }
+}
 const home = mkdtempSync(join(tmpdir(), "codebase-search-home-"));
 const unrelated = join(home, "unrelated.json");
 writeFileSync(unrelated, '{"keep":true}\n');
