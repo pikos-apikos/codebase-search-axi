@@ -448,20 +448,42 @@ test("display text and serialized byte bounds mark truncation", async () => {
     const text = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "6"]);
     assert.equal(text.code, 0);
     assert.equal(text.data.matches[0].text_truncated, true);
+    assert.match(text.data.help, /--max-text-bytes/);
     assert.equal(text.data.matches[0].text_bytes > 6, true);
     const projected = await runCli(["search", "needle", "--root", root, "--fields", "path", "--max-text-bytes", "1"]);
     assert.equal(projected.code, 0);
     assert.deepEqual(projected.data.matches[0], { path: "long.txt" });
     assert.equal(projected.data.complete.display, true);
-    const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "180"]);
+    const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "220"]);
     assert.equal(bytes.code, 0);
-    assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 180);
+    assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 220);
     const tooSmall = await runCli(["search", "needle", "--root", root, "--max-bytes", "1"]);
     assert.equal(tooSmall.code, 1);
     assert.equal(tooSmall.data.error, "output_bound");
     const hugeBound = await runCli(["search", "needle", "--root", root, "--max-bytes", "999999999999999999999999999999999999999999"]);
     assert.equal(hugeBound.code, 2);
     assert.equal(hugeBound.data.error, "invalid_request");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bounded next steps identify scan and serialized output limits", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "one.txt", "needle\n");
+    write(root, "two.txt", "needle\n");
+    for (const command of ["files", "search", "context"]) {
+      const args = command === "files" ? [command] : [command, "needle"];
+      const scan = await runCli([...args, "--root", root, "--scan-max-files", "1"]);
+      assert.equal(scan.code, 0);
+      assert.match(scan.data.help, /--scan-max-files/);
+      assert.match(scan.data.help, /--scan-max-bytes/);
+      const bytes = await runCli([...args, "--root", root, "--max-bytes", "220"]);
+      assert.equal(bytes.code, 0);
+      assert.ok(Buffer.byteLength(bytes.stdout) <= 220);
+      if (!bytes.data.complete.display) assert.match(bytes.data.help, /--max-bytes/);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

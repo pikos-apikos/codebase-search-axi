@@ -548,7 +548,7 @@ function serializeRecord(record: Record<string, unknown>, json: boolean): string
   return json ? JSON.stringify(record) : encodeToon(record);
 }
 
-function applyOutputBound(record: Record<string, unknown>, maxBytes: number | undefined, json: boolean): void {
+function applyOutputBound(record: Record<string, unknown>, maxBytes: number | undefined, json: boolean, onTruncate: () => void): void {
   if (maxBytes === undefined) return;
   const collectionKey = ["files", "matches", "counts"].find((key) => Array.isArray(record[key]));
   if (!collectionKey) {
@@ -560,6 +560,7 @@ function applyOutputBound(record: Record<string, unknown>, maxBytes: number | un
   const collection = record[collectionKey] as unknown[];
   while (collection.length > 0 && Buffer.byteLength(serializeRecord(record, json) + "\n", "utf8") > maxBytes) {
     collection.pop();
+    onTruncate();
     record.returned = collection.length;
     if ("count" in record) record.count = collection.length;
     const complete = record.complete;
@@ -602,8 +603,7 @@ function projectFields(command: CommandName, record: Record<string, unknown>, fi
   return projected;
 }
 
-function addNextStep(record: Record<string, unknown>, command: CommandName): void {
-  const complete = record.complete as { scan?: boolean; display?: boolean } | undefined;
+function addNextStep(record: Record<string, unknown>, command: CommandName, bounds: string[]): void {
   const next = command === "files"
     ? "search PATTERN"
     : command === "search"
@@ -612,18 +612,18 @@ function addNextStep(record: Record<string, unknown>, command: CommandName): voi
         ? "adjust --before/--after or --fields"
         : undefined;
   if (!next) return;
-  const bound = complete && (!complete.scan || !complete.display)
-    ? "; raise --max-results/--max-bytes"
-    : "";
-  record.help = `${next}${bound}`;
+  record.help = `${next}${bounds.length ? `; raise ${bounds.join("/")}` : ""}`;
 }
 
-async function workspaceHome(): Promise<Record<string, unknown>> {
+async function workspaceHome(register: (backend: RgBackend) => void, isInterrupted: () => boolean): Promise<Record<string, unknown>> {
   const root = resolveRoot(Buffer.from(process.cwd(), "utf-8"));
   let backend: RgBackend | undefined;
   try {
     backend = new RgBackend(root);
+    register(backend);
+    if (isInterrupted()) throw new RgError("ripgrep_failed", "Scan interrupted; no complete results are available.");
     const result = await files(backend, root, 200, { maxFiles: 200, maxBytes: 4 * 1024 * 1024 });
+    if (isInterrupted() || backend.interrupted) throw new RgError("ripgrep_failed", "Scan interrupted; no complete results are available.");
     const counts = new Map<string, number>();
     for (const entry of (result.files as Array<string | { bytes: string }>)) {
       const name = typeof entry === "string" ? entry : Buffer.from(entry.bytes, "base64").toString("utf-8");
@@ -726,10 +726,18 @@ export async function main(): Promise<void> {
             "Scan interrupted; no complete results are available.",
           );
         }
+        const complete = record.complete as { scan?: boolean; display?: boolean } | undefined;
+        const bounds: string[] = [];
+        if (complete && !complete.scan) bounds.push("--scan-max-files", "--scan-max-bytes");
+        if (record.help && complete && !complete.display) bounds.push("--max-results");
         applyTextBound(record, parsed.maxTextBytes, parsed.fields);
-        addNextStep(record, parsed.command);
+        if (Array.isArray(record.matches) && record.matches.some((item) => item && typeof item === "object" && item.text_truncated)) bounds.push("--max-text-bytes");
+        addNextStep(record, parsed.command, bounds);
         const projected = projectFields(parsed.command, record, parsed.fields);
-        applyOutputBound(projected, parsed.maxBytes, parsed.json);
+        applyOutputBound(projected, parsed.maxBytes, parsed.json, () => {
+          if (!bounds.includes("--max-bytes")) bounds.push("--max-bytes");
+          addNextStep(projected, parsed.command, bounds);
+        });
         return parsed.json ? JSON.stringify(projected) : projected;
       } finally {
         parsed.root.cleanup();
@@ -757,7 +765,7 @@ export async function main(): Promise<void> {
     topLevelHelp: HELP,
     getCommandHelp: (command: string) =>
       command in commands ? commandHelp(command) : undefined,
-    home: workspaceHome,
+    home: () => workspaceHome((value) => { backend = value; }, () => interrupted),
     commands,
   };
   options.renderUnknownCommand = (command: string) => {
