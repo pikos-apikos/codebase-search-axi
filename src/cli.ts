@@ -318,13 +318,14 @@ const USAGE_ERROR_CODES: ReadonlySet<string> = new Set([
 function commandFlags(command: string): string {
   const common = "--root PATH, --policy PATH, --max-results N, --scan-max-files N, --scan-max-bytes N, --max-text-bytes N, --max-bytes N, --full, --json, --format toon|json, --fields FIELD[,FIELD...]";
   if (command === "setup") return "--home PATH, --json";
+  if (command === "update") return "--check, --dry-run";
   if (command === "files") return `${common}, --type TYPE, --type-not TYPE, --glob GLOB, --hidden, --no-ignore`;
   if (command === "metrics") return `${common}, --type TYPE, --type-not TYPE, --glob GLOB, --hidden, --no-ignore`;
   const matching = `${common}, --fixed-strings, --case-sensitive, --ignore-case, --smart-case, --type TYPE, --type-not TYPE, --glob GLOB, --hidden, --no-ignore, --multiline, --multiline-dotall, --pcre2`;
   if (command === "context") return `${matching}, --before N, --after N`;
   if (command === "count") return `${matching}, --count-matches`;
   if (command === "search") return matching;
-  return "files, search, context, count, metrics, setup";
+  return "files, search, context, count, metrics, setup, update";
 }
 
 function formatCliError(error: unknown): { output: string; exitCode: number } {
@@ -344,7 +345,7 @@ function formatCliError(error: unknown): { output: string; exitCode: number } {
   const usage = USAGE_ERROR_CODES.has(axi.code);
   const exitCode = usage ? 2 : 1;
   const command = process.argv.slice(2).find((arg) =>
-    ["files", "search", "context", "count", "metrics", "setup"].includes(arg),
+    ["files", "search", "context", "count", "metrics", "setup", "update"].includes(arg),
   ) ?? "";
   const record: Record<string, unknown> = {
     status: "error",

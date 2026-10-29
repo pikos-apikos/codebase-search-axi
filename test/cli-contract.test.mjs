@@ -133,6 +133,22 @@ test("leading usage flags use the requested JSON error format", async () => {
   assert.match(data.help, /--fixed-strings/);
 });
 
+test("update usage errors list its valid flags in both formats", async () => {
+  for (const json of [false, true]) {
+    const { stdout, data, code } = await runCli(["update", "--bogus"], { json });
+    assert.equal(code, 2);
+    if (json) {
+      assert.equal(data.status, "error");
+      assert.match(data.help, /--check/);
+      assert.match(data.help, /--dry-run/);
+    } else {
+      assert.match(stdout, /status: error/);
+      assert.match(stdout, /--check/);
+      assert.match(stdout, /--dry-run/);
+    }
+  }
+});
+
 test("setup hooks can install in an explicitly selected disposable user home", async () => {
   const home = makeRoot();
   try {
