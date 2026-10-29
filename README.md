@@ -53,7 +53,7 @@ bin/codebase-search metrics --root .
 bin/codebase-search search --help
 ```
 
-TOON is the default; `--json` and `--format json` select JSON. `--fields FIELD,...` projects records while retaining required completeness metadata. Empty results succeed. Usage errors exit `2`; execution/dependency errors exit `1`, with structured stdout records. Bare invocation returns orientation without scanning; bare `-v`, `-V`, and `--version` return the version without invoking ripgrep.
+TOON is the default; `--json` and `--format json` select JSON. `--fields FIELD,...` projects records while retaining required completeness metadata. Search defaults to `path`, `line`, `column`, and `text`; use `--fields` to include submatches and span details. Empty results succeed. Usage errors exit `2` with structured errors and command-specific valid flags; execution/dependency errors exit `1`. Bare invocation returns the current root, a bounded file count, and top file types; bare `-v`, `-V`, and `--version` return the version without invoking ripgrep.
 
 ## Bounds and completeness
 
@@ -90,7 +90,7 @@ Policies load only through explicit `--policy`. Unknown keys, malformed TOML, du
 
 The portable skill is `skills/codebase-search/SKILL.md`; its checkout mirror is `.agents/skills/codebase-search/SKILL.md`. Searches do not install hooks or contact a registry.
 
-Hook setup requires an explicit isolated home. Personal account homes (including aliases) and project scope are rejected. For a disposable integration check:
+Hook setup requires an explicit `--home` path and remains opt-in. It can target the current user's home; project scope is rejected. For a disposable integration check:
 
 ```bash
 integration_home=$(mktemp -d)

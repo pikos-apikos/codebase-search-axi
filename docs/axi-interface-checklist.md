@@ -8,8 +8,8 @@ search semantics before constructing the `rg` backend.
 
 Implemented principles:
 
-- bare invocation is a compact orientation view with executable identity and
-  no repository scan;
+- bare invocation provides bounded workspace orientation; see the
+  [output contract](v1-contract.md#output-and-errors);
 - files, search, context, count, and metrics return format-neutral records;
 - TOON is the SDK default and `--json` emits the same logical record as JSON;
 - `--fields` projects item schemas while retaining status, bounds, counts, and

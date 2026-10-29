@@ -88,11 +88,110 @@ test("help lists all subcommands", async () => {
   }
 });
 
-test("bare invocation returns compact orientation without scanning", async () => {
-  const { stdout, code } = await runCli([], { json: false });
-  assert.equal(code, 0);
-  assert.match(stdout, /orientation:/);
-  assert.match(stdout, /files/);
+test("bare invocation returns bounded live files and top file types", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "src/one.ts", "one\n");
+    write(root, "src/two.ts", "two\n");
+    write(root, "README.md", "readme\n");
+    write(root, "secret.key", "synthetic-secret\n");
+    write(root, "node_modules/hidden.js", "optional-exclusion\n");
+    const { stdout, code } = await runCli([], { root, json: false });
+    assert.equal(code, 0);
+    assert.match(stdout, /root:/);
+    assert.match(stdout, /file_count: 3/);
+    assert.match(stdout, /\.ts,2/);
+    assert.match(stdout, /bounded: true/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("usage errors are structured with command flags in both formats and exit 2", async () => {
+  for (const json of [false, true]) {
+    const { stdout, data, code } = await runCli(["search", "needle", "--bogus"], { json });
+    assert.equal(code, 2);
+    if (json) {
+      assert.equal(data.status, "error");
+      assert.equal(data.error, "invalid_command");
+      assert.match(data.help, /--fixed-strings/);
+      assert.doesNotMatch(data.help, /--before/);
+    } else {
+      assert.match(stdout, /status: error/);
+      assert.match(stdout, /error: invalid_command/);
+      assert.match(stdout, /--fixed-strings/);
+      assert.doesNotMatch(stdout, /--before/);
+    }
+  }
+});
+
+test("leading usage flags use the requested JSON error format", async () => {
+  const { data, code } = await runCli(["--json", "search", "needle"]);
+  assert.equal(code, 2);
+  assert.equal(data.status, "error");
+  assert.equal(data.error, "invalid_command");
+  assert.match(data.help, /--fixed-strings/);
+});
+
+test("update usage errors list its valid flags in both formats", async () => {
+  for (const json of [false, true]) {
+    const { stdout, data, code } = await runCli(["update", "--bogus"], { json });
+    assert.equal(code, 2);
+    if (json) {
+      assert.equal(data.status, "error");
+      assert.match(data.help, /--check/);
+      assert.match(data.help, /--dry-run/);
+    } else {
+      assert.match(stdout, /status: error/);
+      assert.match(stdout, /--check/);
+      assert.match(stdout, /--dry-run/);
+    }
+  }
+});
+
+test("setup hooks can install in an explicitly selected disposable user home", async () => {
+  const home = makeRoot();
+  try {
+    const { data, code } = await runCli(["setup", "hooks", "install", "--home", home], {
+      env: { ...process.env, HOME: home },
+    });
+    assert.equal(code, 0);
+    assert.equal(data.action, "install");
+    assert.ok(existsSync(join(home, ".claude")) || existsSync(join(home, ".codex")));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("default search rows are minimal and --fields restores explicit detail", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "match.txt", "needle here\n");
+    const basic = await runCli(["search", "needle", "--root", root]);
+    assert.deepEqual(Object.keys(basic.data.matches[0]).filter((key) => key !== "text_bytes"), ["path", "line", "column", "text"]);
+    const detailed = await runCli(["search", "needle", "--root", root, "--fields", "path,line,column,text,submatches"]);
+    assert.ok("submatches" in detailed.data.matches[0]);
+    assert.equal(detailed.data.matches[0].path, "match.txt");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("search, files, and context provide contextual next steps for bounded output", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "a.txt", "needle\nneedle\n");
+    write(root, "b.txt", "needle\n");
+    const files = await runCli(["files", "--root", root, "--max-results", "1"]);
+    const search = await runCli(["search", "needle", "--root", root, "--max-results", "1"]);
+    const context = await runCli(["context", "needle", "--root", root, "--max-results", "1"]);
+    assert.match(files.data.help, /search/);
+    assert.match(search.data.help, /context/);
+    assert.match(search.data.help, /--max-results/);
+    assert.match(context.data.help, /--before|--after|--fields/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("setup hooks is explicit, idempotent, and preserves unrelated home files", async () => {
@@ -127,36 +226,14 @@ test("setup hooks requires an explicit isolated home", async () => {
   }
 });
 
-test("setup hooks rejects personal home aliases before dispatch", async () => {
-  const personalHome = userInfo().homedir;
-  const aliasRoot = makeRoot();
-  const symlinkHome = join(aliasRoot, "home");
-  symlinkSync(personalHome, symlinkHome, "dir");
-  try {
-    for (const home of [personalHome, join(personalHome, "."), "~", "$HOME", "${HOME}", symlinkHome]) {
-      for (const action of ["status", "install", "uninstall"]) {
-        const { data, code } = await runCli(["setup", "hooks", action, "--home", home]);
-        assert.equal(code, 2);
-        assert.equal(data.status, "error");
-        assert.equal(data.error, "invalid_command");
-      }
-    }
-  } finally {
-    rmSync(aliasRoot, { recursive: true, force: true });
-  }
-});
-
-test("setup hooks rejects the account home when HOME is overridden", async () => {
+test("setup hooks allows read-only status for the actual user home", async () => {
   const fakeHome = makeRoot();
   try {
-    for (const action of ["status", "install", "uninstall"]) {
-      const { data, code } = await runCli(["setup", "hooks", action, "--home", userInfo().homedir], {
-        env: { ...process.env, HOME: fakeHome },
-      });
-      assert.equal(code, 2);
-      assert.equal(data.status, "error");
-      assert.equal(data.error, "invalid_command");
-    }
+    const { data, code } = await runCli(["setup", "hooks", "status", "--home", userInfo().homedir], {
+      env: { ...process.env, HOME: fakeHome },
+    });
+    assert.equal(code, 0);
+    assert.equal(data.action, "status");
   } finally {
     rmSync(fakeHome, { recursive: true, force: true });
   }
@@ -387,20 +464,42 @@ test("display text and serialized byte bounds mark truncation", async () => {
     const text = await runCli(["search", "needle", "--root", root, "--max-text-bytes", "6"]);
     assert.equal(text.code, 0);
     assert.equal(text.data.matches[0].text_truncated, true);
+    assert.match(text.data.help, /--max-text-bytes/);
     assert.equal(text.data.matches[0].text_bytes > 6, true);
     const projected = await runCli(["search", "needle", "--root", root, "--fields", "path", "--max-text-bytes", "1"]);
     assert.equal(projected.code, 0);
     assert.deepEqual(projected.data.matches[0], { path: "long.txt" });
     assert.equal(projected.data.complete.display, true);
-    const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "180"]);
+    const bytes = await runCli(["search", "needle", "--root", root, "--max-bytes", "220"]);
     assert.equal(bytes.code, 0);
-    assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 180);
+    assert.ok(Buffer.byteLength(JSON.stringify(bytes.data) + "\n") <= 220);
     const tooSmall = await runCli(["search", "needle", "--root", root, "--max-bytes", "1"]);
     assert.equal(tooSmall.code, 1);
     assert.equal(tooSmall.data.error, "output_bound");
     const hugeBound = await runCli(["search", "needle", "--root", root, "--max-bytes", "999999999999999999999999999999999999999999"]);
     assert.equal(hugeBound.code, 2);
     assert.equal(hugeBound.data.error, "invalid_request");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bounded next steps identify scan and serialized output limits", async () => {
+  const root = makeRoot();
+  try {
+    write(root, "one.txt", "needle\n");
+    write(root, "two.txt", "needle\n");
+    for (const command of ["files", "search", "context"]) {
+      const args = command === "files" ? [command] : [command, "needle"];
+      const scan = await runCli([...args, "--root", root, "--scan-max-files", "1"]);
+      assert.equal(scan.code, 0);
+      assert.match(scan.data.help, /--scan-max-files/);
+      assert.match(scan.data.help, /--scan-max-bytes/);
+      const bytes = await runCli([...args, "--root", root, "--max-bytes", "220"]);
+      assert.equal(bytes.code, 0);
+      assert.ok(Buffer.byteLength(bytes.stdout) <= 220);
+      if (!bytes.data.complete.display) assert.match(bytes.data.help, /--max-bytes/);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -616,7 +715,7 @@ test("format aliases select JSON errors and output bounds use TOON", async () =>
     write(root, "a.txt", "x\n");
     const toon = await runCli(["files", "--root", root, "--max-bytes", "20"], { json: false });
     assert.equal(toon.code, 1);
-    assert.match(toon.stdout, /^error:/);
+    assert.match(toon.stdout, /error: output_bound/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -669,7 +768,7 @@ test("--json after the pattern separator remains a pattern value", async () => {
       { json: false },
     );
     assert.equal(code, 1);
-    assert.match(stdout, /^error:/);
+    assert.match(stdout, /error: invalid_root/);
     assert.ok(!stdout.trimStart().startsWith("{"));
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -822,6 +921,8 @@ test("search supports multiline matching", async () => {
       root,
       "--full",
       "--multiline",
+      "--fields",
+      "path,line,column,text,end_line,end_column",
     ]);
     assert.equal(code, 0);
     assert.equal(data.count, 1);

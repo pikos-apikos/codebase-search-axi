@@ -23,7 +23,7 @@ Local preparation uses Linux, Node 24.19.0, npm, and ripgrep 15.2.0 with PCRE2:
 - The final tarball was separately installed outside the checkout and checked against the README commands and a synthetic denied-path fixture. Its SHA-256 is `9b149f5ac67d79fd7bd98c5539ac6f175803d7421bcdfd2ecf9fd1af05b06d38`.
 - Merged-main CI passed at [run 37928439182](https://github.com/pikos-apikos/codebase-search-axi/actions/runs/37928439182) for `3dc5b60ff3adf58086ecdb6f1fd45d1c919fe102`.
 
-Only Linux has release evidence. The full declared Node >=20 range and other operating systems have not received release qualification. Non-UTF8 argv recovery uses Linux /proc; other platforms preserve valid UTF-8 arguments. Hooks currently accept only explicit isolated homes and reject personal account homes/project scope.
+Only Linux has release evidence. The full declared Node >=20 range and other operating systems have not received release qualification. Non-UTF8 argv recovery uses Linux /proc; other platforms preserve valid UTF-8 arguments. For current hook setup guidance, see the [README](../README.md#optional-axi-integration).
 
 ## Source/history audit
 
