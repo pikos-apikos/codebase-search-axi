@@ -82,9 +82,9 @@ The following flags map directly to ripgrep semantics:
 - repeated `--type TYPE` and `--type-not TYPE` use ripgrep's type database;
   repeated `--glob GLOB` uses ripgrep glob syntax relative to the root;
 - `--multiline` enables ripgrep multiline matching and
-  `--multiline-dotall` keeps its native dot-all option. Multiline records carry
-  start and end line/column data and the matched span; context is based on the
-  span's boundary lines;
+  `--multiline-dotall` keeps its native dot-all option. Multiline records can
+  expose start and end line/column data and the matched span through `--fields`;
+  context is based on the span's boundary lines;
 - `--pcre2` requests ripgrep's optional PCRE2 engine. If the installed `rg`
   lacks PCRE2, the command returns `unsupported_feature`; it never silently
   falls back to another engine.
